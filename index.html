@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OFC ERP System - Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root {
+            --data-entry-color: #3498db;
+            --planner-color: #2ecc71;
+            --admin-color: #e74c3c;
+            --production-color: #9b59b6;
+            --quality-color: #f39c12;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .login-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            max-width: 1200px;
+            width: 100%;
+        }
+        
+        .welcome-section {
+            background: linear-gradient(135deg, #1a2a6c, #2a3a7c);
+            color: white;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .login-section {
+            padding: 40px;
+        }
+        
+        .user-type-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            height: 100%;
+        }
+        
+        .user-type-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .user-type-card.data-entry:hover {
+            border-color: var(--data-entry-color);
+        }
+        
+        .user-type-card.planner:hover {
+            border-color: var(--planner-color);
+        }
+        
+        .user-type-card.admin:hover {
+            border-color: var(--admin-color);
+        }
+        
+        .user-type-card.production:hover {
+            border-color: var(--production-color);
+        }
+        
+        .user-type-card.quality:hover {
+            border-color: var(--quality-color);
+        }
+        
+        .user-icon {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+        }
+        
+        .data-entry .user-icon {
+            color: var(--data-entry-color);
+        }
+        
+        .planner .user-icon {
+            color: var(--planner-color);
+        }
+        
+        .admin .user-icon {
+            color: var(--admin-color);
+        }
+        
+        .production .user-icon {
+            color: var(--production-color);
+        }
+        
+        .quality .user-icon {
+            color: var(--quality-color);
+        }
+        
+        .login-form {
+            display: none;
+        }
+        
+        .active-form {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .btn-data-entry {
+            background-color: var(--data-entry-color);
+            border-color: var(--data-entry-color);
+            color: white;
+        }
+        
+        .btn-planner {
+            background-color: var(--planner-color);
+            border-color: var(--planner-color);
+            color: white;
+        }
+        
+        .btn-admin {
+            background-color: var(--admin-color);
+            border-color: var(--admin-color);
+            color: white;
+        }
+        
+        .btn-production {
+            background-color: var(--production-color);
+            border-color: var(--production-color);
+            color: white;
+        }
+        
+        .btn-quality {
+            background-color: var(--quality-color);
+            border-color: var(--quality-color);
+            color: white;
+        }
+        
+        .back-to-selection {
+            cursor: pointer;
+            color: #6c757d;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+        
+        .back-to-selection:hover {
+            color: #495057;
+        }
+        
+        .system-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .system-subtitle {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-bottom: 30px;
+        }
+        
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .feature-list li {
+            margin-bottom: 10px;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .feature-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #2ecc71;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="login-container">
+            <div class="row g-0">
+                <div class="col-lg-6">
+                    <div class="welcome-section">
+                        <h1 class="system-title">OFC ERP System</h1>
+                        <p class="system-subtitle">Optical Fiber Cable Enterprise Resource Planning</p>
+                        <p>Streamline your optical fiber manufacturing process with our comprehensive ERP solution.</p>
+                        
+                        <h5 class="mt-4">Key Features:</h5>
+                        <ul class="feature-list">
+                            <li>Production Planning & Tracking</li>
+                            <li>Bill of Materials (BOM) Management</li>
+                            <li>Inventory & Stock Control</li>
+                            <li>Quality Assurance Monitoring</li>
+                            <li>Real-time Data Analytics</li>
+                            <li>Maintenance Scheduling</li>
+                        </ul>
+                        
+                        <div class="mt-4">
+                            <small><i class="fas fa-info-circle me-2"></i>Select your role to continue</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="login-section">
+                        <!-- User Type Selection -->
+                        <div id="userTypeSelection">
+                            <h3 class="text-center mb-4">Select Your Role</h3>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="user-type-card data-entry" onclick="selectUserType('data-entry')">
+                                        <div class="user-icon">
+                                            <i class="fas fa-keyboard"></i>
+                                        </div>
+                                        <h4>Data Entry Operator</h4>
+                                        <p class="text-muted">Enter production data, quality checks, and inventory updates</p>
+                                        <div class="mt-3">
+                                            <span class="badge bg-primary">Production Data</span>
+                                            <span class="badge bg-primary">Quality Records</span>
+                                            <span class="badge bg-primary">Inventory Updates</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="user-type-card planner" onclick="selectUserType('planner')">
+                                        <div class="user-icon">
+                                            <i class="fas fa-clipboard-list"></i>
+                                        </div>
+                                        <h4>Planner / BOM Manager</h4>
+                                        <p class="text-muted">Manage production plans, BOMs, and material requirements</p>
+                                        <div class="mt-3">
+                                            <span class="badge bg-success">BOM Management</span>
+                                            <span class="badge bg-success">Production Planning</span>
+                                            <span class="badge bg-success">Material Planning</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="user-type-card production" onclick="selectUserType('production')">
+                                        <div class="user-icon">
+                                            <i class="fas fa-industry"></i>
+                                        </div>
+                                        <h4>Production Operator</h4>
+                                        <p class="text-muted">Record production output, scrap data, and machine operations</p>
+                                        <div class="mt-3">
+                                            <span class="badge bg-info">Production Data</span>
+                                            <span class="badge bg-info">Scrap Recording</span>
+                                            <span class="badge bg-info">Machine Operations</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="user-type-card quality" onclick="selectUserType('quality')">
+                                        <div class="user-icon">
+                                            <i class="fas fa-clipboard-check"></i>
+                                        </div>
+                                        <h4>Quality Inspector</h4>
+                                        <p class="text-muted">Perform quality checks, record defects, and approve products</p>
+                                        <div class="mt-3">
+                                            <span class="badge bg-warning">Quality Checks</span>
+                                            <span class="badge bg-warning">Defect Recording</span>
+                                            <span class="badge bg-warning">Product Approval</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="user-type-card admin" onclick="selectUserType('admin')">
+                                        <div class="user-icon">
+                                            <i class="fas fa-user-cog"></i>
+                                        </div>
+                                        <h4>Administrator</h4>
+                                        <p class="text-muted">Full system access, user management, and configuration</p>
+                                        <div class="mt-3">
+                                            <span class="badge bg-danger">User Management</span>
+                                            <span class="badge bg-danger">System Config</span>
+                                            <span class="badge bg-danger">Reports & Analytics</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Login Forms -->
+                        <!-- Data Entry Login -->
+                        <div id="dataEntryLogin" class="login-form">
+                            <div class="back-to-selection" onclick="backToSelection()">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Role Selection
+                            </div>
+                            <h3 class="text-center mb-4">Data Entry Login</h3>
+                            <form id="dataEntryForm">
+                                <div class="mb-3">
+                                    <label for="deUsername" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="deUsername" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="dePassword" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="dePassword" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-data-entry btn-lg">Login as Data Entry</button>
+                                </div>
+                            </form>
+                            <div class="text-center mt-3">
+                                <small class="text-muted">Access to production data entry and quality records</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Planner Login -->
+                        <div id="plannerLogin" class="login-form">
+                            <div class="back-to-selection" onclick="backToSelection()">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Role Selection
+                            </div>
+                            <h3 class="text-center mb-4">Planner / BOM Manager Login</h3>
+                            <form id="plannerForm">
+                                <div class="mb-3">
+                                    <label for="plannerUsername" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="plannerUsername" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="plannerPassword" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="plannerPassword" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-planner btn-lg">Login as Planner</button>
+                                </div>
+                            </form>
+                            <div class="text-center mt-3">
+                                <small class="text-muted">Access to BOM management and production planning</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Production Operator Login -->
+                        <div id="productionLogin" class="login-form">
+                            <div class="back-to-selection" onclick="backToSelection()">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Role Selection
+                            </div>
+                            <h3 class="text-center mb-4">Production Operator Login</h3>
+                            <form id="productionForm">
+                                <div class="mb-3">
+                                    <label for="productionUsername" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="productionUsername" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="productionPassword" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="productionPassword" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-production btn-lg">Login as Production Operator</button>
+                                </div>
+                            </form>
+                            <div class="text-center mt-3">
+                                <small class="text-muted">Access to production data entry and machine operations</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Quality Inspector Login -->
+                        <div id="qualityLogin" class="login-form">
+                            <div class="back-to-selection" onclick="backToSelection()">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Role Selection
+                            </div>
+                            <h3 class="text-center mb-4">Quality Inspector Login</h3>
+                            <form id="qualityForm">
+                                <div class="mb-3">
+                                    <label for="qualityUsername" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="qualityUsername" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="qualityPassword" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="qualityPassword" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-quality btn-lg">Login as Quality Inspector</button>
+                                </div>
+                            </form>
+                            <div class="text-center mt-3">
+                                <small class="text-muted">Access to quality checks and defect recording</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Admin Login -->
+                        <div id="adminLogin" class="login-form">
+                            <div class="back-to-selection" onclick="backToSelection()">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Role Selection
+                            </div>
+                            <h3 class="text-center mb-4">Administrator Login</h3>
+                            <form id="adminForm">
+                                <div class="mb-3">
+                                    <label for="adminUsername" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="adminUsername" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="adminPassword" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="adminPassword" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-admin btn-lg">Login as Administrator</button>
+                                </div>
+                            </form>
+                            <div class="text-center mt-3">
+                                <small class="text-muted">Full system access and administrative controls</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Firebase Status -->
+                        <div class="mt-4 pt-3 border-top text-center">
+                            <small id="firebaseStatus" class="text-muted">
+                                <i class="fas fa-circle text-success me-1"></i> Firebase Connected
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase configuration
+const firebaseConfig = {
+    apiKey: "AIzaSyAsd4D5WjW7yYaZqOfjcG3fkkpDo4ZBFek",
+    authDomain: "ofc-erp-847bf.firebaseapp.com",
+    projectId: "ofc-erp-847bf",
+    storageBucket: "ofc-erp-847bf.firebasestorage.app",
+    messagingSenderId: "752585152607",
+    appId: "1:752585152607:web:915ae9a4ed01027b95e3ea",
+    measurementId: "G-BKX66MNYHF"
+};
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // DOM elements
+        const userTypeSelection = document.getElementById('userTypeSelection');
+        const dataEntryLogin = document.getElementById('dataEntryLogin');
+        const plannerLogin = document.getElementById('plannerLogin');
+        const productionLogin = document.getElementById('productionLogin');
+        const qualityLogin = document.getElementById('qualityLogin');
+        const adminLogin = document.getElementById('adminLogin');
+        const firebaseStatus = document.getElementById('firebaseStatus');
+
+        // Clear everything on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Page loaded - Clearing all authentication data');
+            
+            // Clear ALL localStorage
+            localStorage.clear();
+            
+            // Sign out from Firebase
+            auth.signOut().catch(() => {
+                // Ignore errors
+            });
+            
+            setupEventListeners();
+        });
+
+        // Select user type function
+        function selectUserType(userType) {
+            userTypeSelection.style.display = 'none';
+            
+            if (userType === 'data-entry') {
+                dataEntryLogin.classList.add('active-form');
+            } else if (userType === 'planner') {
+                plannerLogin.classList.add('active-form');
+            } else if (userType === 'production') {
+                productionLogin.classList.add('active-form');
+            } else if (userType === 'quality') {
+                qualityLogin.classList.add('active-form');
+            } else if (userType === 'admin') {
+                adminLogin.classList.add('active-form');
+            }
+        }
+
+        // Back to selection function
+        function backToSelection() {
+            dataEntryLogin.classList.remove('active-form');
+            plannerLogin.classList.remove('active-form');
+            productionLogin.classList.remove('active-form');
+            qualityLogin.classList.remove('active-form');
+            adminLogin.classList.remove('active-form');
+            userTypeSelection.style.display = 'block';
+        }
+
+        // Setup event listeners
+        function setupEventListeners() {
+            // Form submission handlers
+            document.getElementById('dataEntryForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const username = document.getElementById('deUsername').value;
+                const password = document.getElementById('dePassword').value;
+                handleLogin(username, password, 'data-entry');
+            });
+
+            document.getElementById('plannerForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const username = document.getElementById('plannerUsername').value;
+                const password = document.getElementById('plannerPassword').value;
+                handleLogin(username, password, 'planner');
+            });
+
+            document.getElementById('productionForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const username = document.getElementById('productionUsername').value;
+                const password = document.getElementById('productionPassword').value;
+                handleLogin(username, password, 'production');
+            });
+
+            document.getElementById('qualityForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const username = document.getElementById('qualityUsername').value;
+                const password = document.getElementById('qualityPassword').value;
+                handleLogin(username, password, 'quality');
+            });
+
+            document.getElementById('adminForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const username = document.getElementById('adminUsername').value;
+                const password = document.getElementById('adminPassword').value;
+                handleLogin(username, password, 'admin');
+            });
+        }
+
+        // MAIN LOGIN FUNCTION - SIMPLE REDIRECT
+        function handleLogin(username, password, role) {
+            console.log('=== LOGIN ATTEMPT ===');
+            console.log('Username:', username);
+            console.log('Password:', password);
+            console.log('Role:', role);
+            
+            if (!username || !password) {
+                alert('Please enter both username and password');
+                return;
+            }
+            
+            // Store role in localStorage
+            localStorage.setItem('userRole', role);
+            localStorage.setItem('userEmail', username + '@ofcerp.com');
+            localStorage.setItem('username', getDisplayName(role));
+            localStorage.setItem('loginTime', new Date().toISOString());
+            
+            console.log('Stored in localStorage:', {
+                userRole: localStorage.getItem('userRole'),
+                userEmail: localStorage.getItem('userEmail'),
+                username: localStorage.getItem('username')
+            });
+            
+            // Show success message
+            showLoginSuccess(role, getDisplayName(role));
+            
+            // DIRECT REDIRECT - No delay, no Firebase auth
+            console.log('Redirecting to:', role + '-dashboard.html');
+            
+            setTimeout(() => {
+                // Each role goes to its own dashboard
+                window.location.href = role + '-dashboard.html';
+            }, 1000);
+        }
+
+        // Helper function to get display names
+        function getDisplayName(role) {
+            const displayNames = {
+                'data-entry': 'Data Entry Operator',
+                'planner': 'Production Planner', 
+                'production': 'Production Operator',
+                'quality': 'Quality Inspector',
+                'admin': 'System Administrator'
+            };
+            return displayNames[role] || role;
+        }
+
+        // Show login success
+        function showLoginSuccess(role, username) {
+            const activeForm = document.querySelector('.login-form.active-form');
+            const submitButton = activeForm.querySelector('button[type="submit"]');
+            const originalText = submitButton.innerHTML;
+            
+            submitButton.innerHTML = '<i class="fas fa-check-circle me-2"></i> Login Successful!';
+            submitButton.disabled = true;
+            submitButton.className = 'btn btn-success btn-lg';
+            
+            setTimeout(() => {
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+                
+                if (role === 'data-entry') {
+                    submitButton.className = 'btn btn-data-entry btn-lg';
+                } else if (role === 'planner') {
+                    submitButton.className = 'btn btn-planner btn-lg';
+                } else if (role === 'production') {
+                    submitButton.className = 'btn btn-production btn-lg';
+                } else if (role === 'quality') {
+                    submitButton.className = 'btn btn-quality btn-lg';
+                } else if (role === 'admin') {
+                    submitButton.className = 'btn btn-admin btn-lg';
+                }
+            }, 1000);
+        }
+
+        // Simple Firebase status check
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                firebaseStatus.innerHTML = '<i class="fas fa-circle text-success me-1"></i> Firebase Connected - User Authenticated';
+            } else {
+                firebaseStatus.innerHTML = '<i class="fas fa-circle text-success me-1"></i> Firebase Connected - Ready for Login';
+            }
+        });
+
+        // Demo credentials notification
+        setTimeout(() => {
+            alert('DEMO MODE ACTIVE:\n\nYou can use ANY username and password.\n\nExamples:\nUsername: dataentry\nPassword: 123\n\nThis will redirect to the appropriate dashboard.');
+        }, 1000);
+    </script>
+</body>
+</html>
