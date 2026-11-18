@@ -567,11 +567,11 @@ const firebaseConfig = {
             showLoginSuccess(role, getDisplayName(role));
             
             // DIRECT REDIRECT - No delay, no Firebase auth
-            console.log('Redirecting to:', role + '-dashboard.html');
+            console.log('Redirecting to: erp-dashboard.html (role: ' + role + ')');
             
             setTimeout(() => {
-                // Each role goes to its own dashboard
-                window.location.href = role + '-dashboard.html';
+                // One combined ERP file; it shows the modules allowed for this role
+                window.location.href = 'erp-dashboard.html';
             }, 1000);
         }
 
