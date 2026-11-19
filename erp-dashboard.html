@@ -1314,6 +1314,7 @@ document.getElementById('exportReportBtn').addEventListener('click', exportRepor
                 loadDashboardData();
                 break;
             case 'inventory':
+                checkDuplicateInventory();
                 inventoryModule.classList.add('active');
                 loadInventory();
                 break;
@@ -3351,6 +3352,87 @@ function rejectMaterialIssue(issueId) {
         if (m) m.hide();
         loadMaterialIssues();
     }).catch(err => { console.error(err); alert('Error rejecting request'); });
+}
+
+// ============================================================
+// ONE RECORD PER MATERIAL ID  (name + UOM are defined once, here in the Store)
+// ============================================================
+function findDuplicateInventory() {
+    return db.collection('inventory').get().then(snap => {
+        const groups = {};
+        snap.forEach(d => {
+            const x = d.data();
+            if (!x.materialId || x.status === 'rejected') return;
+            (groups[x.materialId] = groups[x.materialId] || []).push({ id: d.id, ref: d.ref, data: x });
+        });
+        const created = r => (r.data.qcRecordId || r.data.sourceJob || r.data.inventoryId) ? 1 : 0;
+        return Object.keys(groups).filter(k => groups[k].length > 1).map(k => {
+            const rows = groups[k].slice().sort((a, b) =>
+                created(a) - created(b) ||
+                ((a.data.category === 'FG') ? 0 : 1) - ((b.data.category === 'FG') ? 0 : 1));
+            return { materialId: k, master: rows[0], others: rows.slice(1) };
+        });
+    });
+}
+
+function checkDuplicateInventory() {
+    const body = document.querySelector('#inventoryModule .card-body');
+    if (!body) return Promise.resolve();
+    let el = document.getElementById('dupInventoryAlert');
+    if (!el) {
+        body.insertAdjacentHTML('afterbegin', '<div id="dupInventoryAlert" style="display:none"></div>');
+        el = document.getElementById('dupInventoryAlert');
+    }
+    return findDuplicateInventory().then(list => {
+        if (!list.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+        el.className = 'alert alert-warning d-flex justify-content-between align-items-center';
+        el.style.display = 'flex';
+        el.innerHTML = `<span><i class="fas fa-exclamation-triangle me-2"></i><strong>${list.length} material ID(s)</strong> appear more than once (${list.map(g => escHtml(g.materialId)).join(', ')}).
+            Each material must have ONE record with one name and one UOM.</span>
+            <button class="btn btn-sm btn-warning ms-3" onclick="mergeDuplicateInventory()">Review &amp; Merge</button>`;
+    }).catch(e => console.error('Duplicate check failed:', e));
+}
+
+function mergeDuplicateInventory() {
+    findDuplicateInventory().then(list => {
+        if (!list.length) { alert('No duplicate materials found.'); return; }
+
+        let msg = 'These records will be merged into ONE record per Material ID.\n' +
+                  'The Store record keeps its name and UOM; the other records are removed.\n\n';
+        let unitWarning = false;
+        list.forEach(g => {
+            const mu = normalizeUom(g.master.data.uom);
+            const total = [g.master].concat(g.others).reduce((s, r) => s + (Number(r.data.currentStock) || 0), 0);
+            msg += `${g.materialId}\n  KEEP : ${g.master.data.materialName} [${mu}] stock ${Number(g.master.data.currentStock) || 0}\n`;
+            g.others.forEach(o => {
+                const ou = normalizeUom(o.data.uom);
+                msg += `  MERGE: ${o.data.materialName} [${ou}] stock ${Number(o.data.currentStock) || 0}\n`;
+                if (ou !== mu) unitWarning = true;
+            });
+            msg += `  RESULT: ${g.master.data.materialName} [${mu}] stock ${total}\n\n`;
+        });
+        if (unitWarning) msg += 'NOTE: some records use a different UOM. Quantities are added as plain numbers, so please check the stock after merging.\n\n';
+        msg += 'Continue?';
+        if (!confirm(msg)) return;
+
+        return Promise.all(list.map(g => {
+            const total = [g.master].concat(g.others).reduce((s, r) => s + (Number(r.data.currentStock) || 0), 0);
+            const reorder = Number(g.master.data.reorderLevel) || 0;
+            const batch = db.batch();
+            batch.update(g.master.ref, {
+                currentStock: total,
+                status: total <= 0 ? 'Out of Stock' : (total <= reorder ? 'Low Stock' : 'Available'),
+                uom: normalizeUom(g.master.data.uom),
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            g.others.forEach(o => batch.delete(o.ref));
+            return batch.commit();
+        })).then(() => {
+            alert('Duplicate materials merged.');
+            loadInventory();
+            checkDuplicateInventory();
+        });
+    }).catch(err => { console.error(err); alert('Merge failed: ' + (err && err.message ? err.message : err)); });
 }
 
 function getMaterialStatus(materialData) {
@@ -9091,6 +9173,7 @@ function addToQCInventory(qcData) {
         qcRecordId: qcData.qcId,
         materialId: qcData.materialId || '',
         materialName: `${qcData.materialName || ''}${sizeInfo}${dimensionInfo}`,
+        baseMaterialName: qcData.materialName || '',
         quantity: qcData.productionQuantity || 0,
         uom: normalizeUom(qcData.uom),
         sizeCategory: qcData.sizeCategory || '',
@@ -9200,7 +9283,7 @@ function logQCReceiveTransaction(qcItem) {
     return db.collection('transactions').doc('QCRCV-' + qcId).set({
         materialId: qcItem.materialId,
         inventoryDocId: null,
-        materialName: (qcItem.materialName || '').trim(),
+        materialName: cleanMaterialName(qcItem),
         category: qcItem.category || 'FG',
         uom: normalizeUom(qcItem.uom),
         type: 'RECEIVE',
@@ -9217,58 +9300,66 @@ function logQCReceiveTransaction(qcItem) {
     });
 }
 
+// Name shown in the Store must be the plain material name (no size / dimension suffix)
+function cleanMaterialName(qcItem) {
+    if (qcItem.baseMaterialName) return String(qcItem.baseMaterialName).trim();
+    let n = String(qcItem.materialName || '').trim();
+    if (qcItem.sizeCategory) {
+        const esc = String(qcItem.sizeCategory).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        n = n.replace(new RegExp('\\s*\\(' + esc + '\\)'), '');
+    }
+    return n.trim();
+}
+
 // Move to Goods Inventory (Finished Goods)
+// RULE: one inventory record per Material ID. The name and UOM are set ONCE in the Store.
+// QC only adds quantity to that record - it never creates a second record and never changes name / UOM.
 function moveToGoodsInventory(qcItem) {
-    const inventoryId = 'INV-' + Date.now();
-    
-    const inventoryData = {
-        inventoryId: inventoryId,
-        materialId: qcItem.materialId,
-        materialName: qcItem.materialName,
-        currentStock: qcItem.quantity,
-        uom: normalizeUom(qcItem.uom),
-        reorderLevel: 10,
-        sizeCategory: qcItem.sizeCategory,
-        dimensions: qcItem.dimensions,
-        weight: qcItem.weight,
-        category: qcItem.category,
-        sourceJob: qcItem.sourceJob,
-        orderId: qcItem.orderId,
-        qcRecordId: qcItem.qcRecordId,
-        addedDate: firebase.firestore.FieldValue.serverTimestamp(),
-        addedBy: qcItem.addedBy,
-        status: 'available',
-        location: 'Main Warehouse'
-    };
-    
-    console.log('Moving to goods inventory:', inventoryData);
-    
-    // Check if similar inventory item exists
+    const qty = Number(qcItem.quantity) || 0;
+    const wantedCategory = qcItem.category || 'FG';
+
     return db.collection('inventory')
-        .where('materialId', '==', inventoryData.materialId)
-        .where('sizeCategory', '==', inventoryData.sizeCategory)
-        .where('dimensions', '==', inventoryData.dimensions)
-        .where('category', '==', inventoryData.category)
+        .where('materialId', '==', qcItem.materialId)
         .get()
         .then(snapshot => {
-            if (!snapshot.empty) {
-                // Update existing inventory
-                const existingItem = snapshot.docs[0];
-                const existingData = existingItem.data();
-                const newStock = (existingData.currentStock || 0) + (inventoryData.currentStock || 0);
-                
-                console.log('Updating existing inventory item:', existingItem.id, 'New stock:', newStock);
-                
-                return db.collection('inventory').doc(existingItem.id).update({
+            const rows = snapshot.docs.filter(d => d.data().status !== 'rejected');
+            if (rows.length) {
+                // choose the Store's own record: right category first, then not created by QC
+                const score = d => (d.data().category === wantedCategory ? 2 : 0) + ((d.data().qcRecordId || d.data().sourceJob) ? 0 : 1);
+                const master = rows.slice().sort((a, b) => score(b) - score(a))[0];
+                const m = master.data();
+                const newStock = (Number(m.currentStock) || 0) + qty;
+                const reorder = Number(m.reorderLevel) || 0;
+                console.log('Adding to existing inventory record:', master.id, 'New stock:', newStock);
+
+                return db.collection('inventory').doc(master.id).update({
                     currentStock: newStock,
+                    status: newStock <= 0 ? 'Out of Stock' : (newStock <= reorder ? 'Low Stock' : 'Available'),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
                     lastQcRecord: qcItem.qcRecordId
                 });
-            } else {
-                // Create new inventory item
-                console.log('Creating new inventory item:', inventoryId);
-                return db.collection('inventory').doc(inventoryId).set(inventoryData);
             }
+
+            // Material does not exist in the Store yet: create it once, with the plain name
+            const inventoryId = 'INV-' + Date.now();
+            console.log('Creating new inventory item:', inventoryId);
+            return db.collection('inventory').doc(inventoryId).set({
+                inventoryId: inventoryId,
+                materialId: qcItem.materialId,
+                materialName: cleanMaterialName(qcItem),
+                currentStock: qty,
+                uom: normalizeUom(qcItem.uom),
+                reorderLevel: 10,
+                category: wantedCategory,
+                sourceJob: qcItem.sourceJob || '',
+                orderId: qcItem.orderId || '',
+                qcRecordId: qcItem.qcRecordId || '',
+                addedDate: firebase.firestore.FieldValue.serverTimestamp(),
+                addedBy: qcItem.addedBy || '',
+                status: 'Available',
+                location: 'Main Warehouse'
+            });
         })
         .catch(error => {
             console.error('Error moving to goods inventory:', error);
