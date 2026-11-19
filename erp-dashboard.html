@@ -6249,6 +6249,7 @@ function syncMasterData(force) {
                         <li class="nav-item">
                             <a class="nav-link" href="#" data-module="machines">
                                 <i class="fas fa-cogs me-2"></i> Machine Operations
+                                <span id="allocNavBadge" class="badge bg-warning text-dark ms-1" style="display:none">0</span>
                             </a>
                         </li>
                         <li class="nav-item">
@@ -6318,6 +6319,16 @@ function syncMasterData(force) {
                                 <div class="stats-number text-danger" id="totalScrap">0</div>
                                 <div class="stats-label">Today's FG Scrap</div>
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3" id="allocOverviewCard">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="fas fa-bell me-2 text-warning"></i>Allocations from Planner</h5>
+                            <span class="badge bg-warning text-dark" id="allocOverviewCount">0</span>
+                        </div>
+                        <div class="card-body p-2">
+                            <div id="allocOverviewList"><div class="text-muted text-center py-2">Loading allocations...</div></div>
                         </div>
                     </div>
 
@@ -6430,15 +6441,7 @@ function syncMasterData(force) {
                                         </div>
                                         <div class="mb-3">
                                             <label for="scrapReason" class="form-label">FG Scrap Reason <small class="text-muted">(required if scrap &gt; 0)</small></label>
-                                            <select class="form-select" id="scrapReason">
-                                                <option value="">Select Reason</option>
-                                                <option value="DIMENSION_ISSUE">Dimension Issue</option>
-                                                <option value="QUALITY_DEFECT">Quality Defect</option>
-                                                <option value="MACHINE_ERROR">Machine Error</option>
-                                                <option value="MATERIAL_ISSUE">Material Issue</option>
-                                                <option value="OPERATOR_ERROR">Operator Error</option>
-                                                <option value="OTHER">Other</option>
-                                            </select>
+                                            <input type="text" class="form-control" id="scrapReason" placeholder="Type the reason for scrap" autocomplete="off">
                                         </div>
                                         <div class="mb-3">
                                             <label for="startDate" class="form-label">Start Date</label>
@@ -6522,12 +6525,11 @@ function syncMasterData(force) {
                                     </select>
                                 </div>
                                 <div class="col-md-6">
-                                    <label for="dateRangeFilter" class="form-label">Date Range</label>
+                                    <label for="dateRangeFilter" class="form-label">Status</label>
                                     <select class="form-select" id="dateRangeFilter">
-                                        <option value="today">Today</option>
-                                        <option value="week">This Week</option>
-                                        <option value="month">This Month</option>
-                                        <option value="all">All Time</option>
+                                        <option value="all">All Orders</option>
+                                        <option value="inprogress">Open / In Progress</option>
+                                        <option value="completed">Completed</option>
                                     </select>
                                 </div>
                             </div>
@@ -6830,12 +6832,14 @@ const firebaseConfig = {
                             <span class="badge ${machine.status === 'active' ? 'bg-success' : 'bg-warning'}">
                                 ${machine.status === 'active' ? 'Available' : 'Maintenance'}
                             </span>
+                            <div class="mt-2 alloc-count" data-machine-count="${machine.id}"></div>
                             ${machine.status === 'maintenance' ? '<div class="mt-2"><small>Under Maintenance</small></div>' : ''}
                         </div>
                     </div>
                 `;
                 machinesList.appendChild(col);
             });
+            renderAllocationOverview();
 
             // Machines used by active allocations but not in the master list (old names) - never hide them
             db.collection('allocations').where('status', '==', 'active').get().then(snap => {
@@ -6851,10 +6855,12 @@ const firebaseConfig = {
                                 <i class="fas fa-cog fa-2x mb-2 text-secondary"></i>
                                 <h5>${id}</h5>
                                 <span class="badge bg-secondary">Old machine name</span>
+                                <div class="mt-2 alloc-count" data-machine-count="${id}"></div>
                             </div>
                         </div>`;
                     machinesList.appendChild(col);
                 });
+                renderAllocationOverview();
             }).catch(e => console.error('Extra machines load failed:', e));
         }
 
@@ -6935,9 +6941,11 @@ const firebaseConfig = {
                             ${allocation.remarks ? `<div class="mt-2"><small><strong>Remarks:</strong> ${allocation.remarks}</small></div>` : ''}
                             ${allocation.orderId ? `<div class="mt-1"><small><strong>Order ID:</strong> ${allocation.orderId}</small></div>` : ''}
                             ${allocation.bomId ? `<div class="mt-1"><small><strong>BOM ID:</strong> ${allocation.bomId}</small></div>` : ''}
+                            ${allocationMaterialsHtml(allocation)}
                         `;
                         allocationsList.appendChild(allocationItem);
                     });
+                    fillLegacyMaterials(allocationsList);
                 })
                 .catch(error => {
                     console.error('Error loading allocations:', error);
@@ -6961,21 +6969,11 @@ const firebaseConfig = {
             return String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
 
-        const SCRAP_REASON_OPTIONS = `
-            <option value="">Reason</option>
-            <option value="DIMENSION_ISSUE">Dimension Issue</option>
-            <option value="QUALITY_DEFECT">Quality Defect</option>
-            <option value="MACHINE_ERROR">Machine Error</option>
-            <option value="MATERIAL_ISSUE">Material Issue</option>
-            <option value="OPERATOR_ERROR">Operator Error</option>
-            <option value="OTHER">Other</option>`;
-
         // BOM items of a job/allocation, with the quantity the Store actually issued
         function bomComponentsFallback(a) {
             if (!a.bomId) return Promise.resolve([]);
-            return db.collection('boms').doc(a.bomId).get().then(b => {
-                if (!b.exists) return [];
-                const bom = b.data();
+            return fetchBom(a.bomId).then(bom => {
+                if (!bom) return [];
                 const list = bom.components || bom.rawMaterials || [];
                 const qty = Number(a.orderQuantity || a.allocatedQuantity) || 0;
                 return list.map(c => {
@@ -7049,17 +7047,148 @@ const firebaseConfig = {
                 }, err => console.error('Allocation watcher error:', err));
         }
 
+        // ---------- BOM lookup (BOMs are saved with an auto id, so also search by the BOM-xxx label) ----------
+        function fetchBom(bomId) {
+            const byField = () => db.collection('boms').where('bomId', '==', bomId).get()
+                .then(s => s.empty ? null : s.docs[0].data());
+            try {
+                return db.collection('boms').doc(bomId).get().then(d => d.exists ? d.data() : byField());
+            } catch (e) {
+                return byField();
+            }
+        }
+
+        // ---------- raw materials shown directly on the allocation (Machine Operations) ----------
+        function materialStatusBadge(a) {
+            if (a.materialAvailable === true) return '<span class="badge bg-success">Issued</span>';
+            if (a.issueStatus === 'requested') return '<span class="badge bg-warning text-dark">Waiting for Store</span>';
+            if (a.issueStatus === 'rejected') return '<span class="badge bg-danger">Rejected by Store</span>';
+            if (a.issueFlow !== 'store_approval') return '<span class="badge bg-secondary">Not confirmed</span>';
+            return '<span class="badge bg-secondary">Not requested</span>';
+        }
+
+        function materialsTableHtml(rows, badge) {
+            return `<div class="mt-2"><small><strong>Raw materials (BOM):</strong></small>
+                <div class="table-responsive"><table class="table table-sm table-bordered mb-0" style="font-size:.85rem">
+                    <thead class="table-light"><tr><th>Material ID</th><th>Material</th><th>Required</th><th>UOM</th><th>Store status</th></tr></thead>
+                    <tbody>${rows.map(c => `<tr>
+                        <td>${escAttr(c.materialId)}</td><td>${escAttr(c.materialName)}</td>
+                        <td>${c.requiredQty}</td><td>${escAttr(normalizeUom(c.uom))}</td><td>${badge}</td></tr>`).join('')}
+                    </tbody></table></div></div>`;
+        }
+
+        function allocationMaterialsHtml(a) {
+            const comps = Array.isArray(a.components) ? a.components : [];
+            const badge = materialStatusBadge(a);
+            if (comps.length) return materialsTableHtml(comps, badge);
+            if (a.bomId) {
+                return `<div class="mt-2 rm-fill" data-bom="${escAttr(a.bomId)}" data-qty="${Number(a.orderQuantity || a.quantity) || 0}" data-badge="${escAttr(badge)}">
+                            <small class="text-muted">Loading raw materials...</small></div>`;
+            }
+            return '';
+        }
+
+        // allocations made before the new flow have no saved material list: read it from the BOM
+        function fillLegacyMaterials(container) {
+            container.querySelectorAll('.rm-fill').forEach(el => {
+                const qty = Number(el.dataset.qty) || 0;
+                fetchBom(el.dataset.bom).then(bom => {
+                    const list = bom ? (bom.components || bom.rawMaterials || []) : [];
+                    if (!list.length) { el.innerHTML = '<small class="text-muted">No raw materials defined in the BOM</small>'; return; }
+                    el.outerHTML = materialsTableHtml(list.map(c => ({
+                        materialId: c.materialId, materialName: c.materialName,
+                        requiredQty: (Number(c.quantity) || 0) * qty, uom: c.uom
+                    })), el.dataset.badge);
+                }).catch(() => { el.innerHTML = '<small class="text-danger">Could not load raw materials</small>'; });
+            });
+        }
+
+        // ---------- live overview of allocations made by the Planner ----------
+        let allocOverview = [];
+        let allocOverviewFirst = true;
+
+        function showAllocationToast(a) {
+            let box = document.getElementById('allocToastBox');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'allocToastBox';
+                box.style.cssText = 'position:fixed;top:70px;right:20px;z-index:3000;max-width:340px';
+                document.body.appendChild(box);
+            }
+            const t = document.createElement('div');
+            t.className = 'alert alert-warning shadow mb-2';
+            t.style.cursor = 'pointer';
+            t.innerHTML = `<strong><i class="fas fa-bell me-1"></i>New allocation</strong><br>
+                ${escAttr(a.fgProductName || a.fgProductId || '')} - ${escAttr(a.orderQuantity || '')} ${escAttr(normalizeUom(a.uom))}<br>
+                <small>Machine: ${escAttr(machineLabel(a.machine))} &middot; Order: ${escAttr(a.orderId || '-')}</small>`;
+            t.onclick = () => { t.remove(); openMachineFromAllocation(a.machine); };
+            box.appendChild(t);
+            setTimeout(() => { if (t.parentNode) t.remove(); }, 10000);
+        }
+
+        function openMachineFromAllocation(machineId) {
+            showModule('machines');
+            setTimeout(() => selectMachine(machineId, machineLabel(machineId)), 300);
+        }
+
+        function renderAllocationOverview() {
+            const n = allocOverview.length;
+
+            const nav = document.getElementById('allocNavBadge');
+            if (nav) { nav.textContent = n; nav.style.display = n ? 'inline-block' : 'none'; }
+
+            document.querySelectorAll('[data-machine-count]').forEach(el => {
+                const list = allocOverview.filter(a => a.machine === el.getAttribute('data-machine-count'));
+                if (!list.length) { el.innerHTML = '<small class="text-muted">No allocations</small>'; return; }
+                const ready = list.filter(a => a.materialAvailable === true).length;
+                const waiting = list.filter(a => a.issueStatus === 'requested').length;
+                el.innerHTML = `<span class="badge bg-warning text-dark">${list.length} allocation${list.length > 1 ? 's' : ''}</span>` +
+                    (ready ? ` <span class="badge bg-success">${ready} ready to start</span>` : '') +
+                    (waiting ? ` <span class="badge bg-info">${waiting} waiting for store</span>` : '');
+            });
+
+            const cnt = document.getElementById('allocOverviewCount');
+            if (cnt) cnt.textContent = n;
+            const box = document.getElementById('allocOverviewList');
+            if (box) {
+                if (!n) { box.innerHTML = '<div class="text-muted text-center py-2">No active allocations</div>'; return; }
+                const sorted = allocOverview.slice().sort((x, y) => String(x.machine).localeCompare(String(y.machine)));
+                box.innerHTML = `<table class="table table-sm table-hover align-middle mb-0">
+                    <thead><tr><th>Machine</th><th>Order</th><th>Product</th><th>Quantity</th><th>Customer</th><th>Materials</th><th></th></tr></thead>
+                    <tbody>${sorted.map(a => `<tr>
+                        <td><strong>${escAttr(machineLabel(a.machine))}</strong></td>
+                        <td>${escAttr(a.orderId || '-')}</td>
+                        <td>${escAttr(a.fgProductName || a.fgProductId || '-')}</td>
+                        <td>${escAttr(a.orderQuantity || '')} ${escAttr(normalizeUom(a.uom))}</td>
+                        <td>${escAttr(a.customer || '-')}</td>
+                        <td>${a.materialAvailable === true ? '<span class="badge bg-success">Ready to start</span>' : materialStatusBadge(a)}</td>
+                        <td><button class="btn btn-sm btn-outline-primary" onclick="openMachineFromAllocation('${escAttr(a.machine)}')">Open</button></td>
+                    </tr>`).join('')}</tbody></table>`;
+            }
+        }
+
+        function watchAllocationsOverview() {
+            db.collection('allocations').where('status', '==', 'active').onSnapshot(snap => {
+                allocOverview = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                if (!allocOverviewFirst) {
+                    snap.docChanges().forEach(ch => { if (ch.type === 'added') showAllocationToast(ch.doc.data()); });
+                }
+                allocOverviewFirst = false;
+                renderAllocationOverview();
+            }, err => console.error('Allocation overview error:', err));
+        }
+
         // Load BOM details
         function loadBomDetails(bomId, allocationId) {
             Promise.all([
-                db.collection('boms').doc(bomId).get(),
+                fetchBom(bomId),
                 db.collection('allocations').doc(allocationId).get()
-            ]).then(([bomDoc, allocDoc]) => {
-                if (!bomDoc.exists) {
+            ]).then(([bom, allocDoc]) => {
+                if (!bom) {
                     alert('BOM not found: ' + bomId);
                     return;
                 }
-                showBomDetails(bomDoc.data(), allocationId, allocDoc.exists ? allocDoc.data() : {});
+                showBomDetails(bom, allocationId, allocDoc.exists ? allocDoc.data() : {});
             }).catch(error => {
                 console.error('Error loading BOM:', error);
                 alert('Error loading BOM details');
@@ -7416,7 +7545,7 @@ const firebaseConfig = {
                             <td>${issued}</td>
                             <td>${escAttr(uom)}</td>
                             <td><input type="number" class="form-control form-control-sm rm-scrap-qty" min="0" step="any" value="0" style="max-width:120px"></td>
-                            <td><select class="form-select form-select-sm rm-scrap-reason">${SCRAP_REASON_OPTIONS}</select></td>
+                            <td><input type="text" class="form-control form-control-sm rm-scrap-reason" placeholder="Type reason" autocomplete="off"></td>
                         </tr>`;
                     }).join('');
                     section.style.display = 'block';
@@ -7432,7 +7561,7 @@ const firebaseConfig = {
             const jobId = document.getElementById('productionAllocation').value;
             const productionOutput = parseFloat(document.getElementById('productionOutput').value);
             const scrapQuantity = parseFloat(document.getElementById('scrapQuantity').value) || 0;
-            const scrapReason = document.getElementById('scrapReason').value;
+            const scrapReason = document.getElementById('scrapReason').value.trim();
             const remarks = document.getElementById('productionRemarks').value;
             const plannerName = document.getElementById('plannerName').value;
             const fgProductId = document.getElementById('fgProductId').value;
@@ -7453,7 +7582,7 @@ const firebaseConfig = {
             let problem = '';
             document.querySelectorAll('#rmScrapBody tr[data-material-id]').forEach(tr => {
                 const qty = parseFloat(tr.querySelector('.rm-scrap-qty').value) || 0;
-                const reason = tr.querySelector('.rm-scrap-reason').value;
+                const reason = tr.querySelector('.rm-scrap-reason').value.trim();
                 const issued = parseFloat(tr.dataset.issued) || 0;
                 if (qty < 0) problem = 'Scrap quantity cannot be negative';
                 if (qty > 0) {
@@ -7697,235 +7826,105 @@ const firebaseConfig = {
         }
 
         // Load order analysis
+        // Order-wise production analysis (simple): one row per order
         function loadOrderAnalysis() {
             const orderId = document.getElementById('orderFilter').value;
-            const dateRange = document.getElementById('dateRangeFilter').value;
+            const statusFilter = document.getElementById('dateRangeFilter').value;
             const resultsDiv = document.getElementById('orderAnalysisResults');
-            
             resultsDiv.innerHTML = '<div class="text-center">Loading analysis...</div>';
-            
-            // Calculate date range
-            let startDate = new Date(0); // Beginning of time
-            const endDate = new Date();
-            
-            if (dateRange === 'today') {
-                startDate = new Date();
-                startDate.setHours(0, 0, 0, 0);
-            } else if (dateRange === 'week') {
-                startDate = new Date();
-                startDate.setDate(startDate.getDate() - 7);
-            } else if (dateRange === 'month') {
-                startDate = new Date();
-                startDate.setMonth(startDate.getMonth() - 1);
-            }
-            
+
             Promise.all([
                 db.collection('allocations').get(),
-                db.collection('production_jobs').get(),
-                db.collection('scrap_records').get()
-            ]).then(([allocationsSnapshot, jobsSnapshot, scrapSnapshot]) => {
-                // Process data
-                const orderData = {};
-                
-                // Process allocations
-                allocationsSnapshot.forEach(doc => {
-                    const allocation = doc.data();
-                    const allocOrderId = allocation.orderId;
-                    
-                    if (!allocOrderId) return;
-                    if (orderId && allocOrderId !== orderId) return;
-                    
-                    if (!orderData[allocOrderId]) {
-                        orderData[allocOrderId] = {
-                            orderId: allocOrderId,
-                            customer: allocation.customer,
-                            allocatedQuantity: 0,
-                            producedQuantity: 0,
-                            scrapQuantity: 0,
-                            jobs: [],
-                            allocations: []
-                        };
-                    }
-                    
-                    orderData[allocOrderId].allocatedQuantity += parseFloat(allocation.orderQuantity || allocation.quantity || 0);
-                    orderData[allocOrderId].allocations.push(allocation);
+                db.collection('production_jobs').get()
+            ]).then(([allocSnap, jobSnap]) => {
+                const orders = {};
+                allocSnap.forEach(doc => {
+                    const a = doc.data();
+                    const key = a.orderId || '(no order id)';
+                    const o = orders[key] || (orders[key] = {
+                        orderId: key, customers: new Set(), products: new Set(), machines: new Set(),
+                        uom: '', ordered: 0, produced: 0, scrap: 0, open: 0, done: 0, running: false
+                    });
+                    o.ordered += Number(a.orderQuantity || a.quantity) || 0;
+                    if (a.customer) o.customers.add(a.customer);
+                    o.products.add(a.fgProductName || a.materialName || a.fgProductId || '-');
+                    if (a.machine) o.machines.add(machineLabel(a.machine));
+                    if (!o.uom) o.uom = normalizeUom(a.uom);
+                    if (a.status === 'completed') o.done++; else o.open++;
                 });
-                
-                // Process production jobs
-                jobsSnapshot.forEach(doc => {
-                    const job = doc.data();
-                    const jobOrderId = job.orderId;
-                    
-                    if (!jobOrderId) return;
-                    if (orderId && jobOrderId !== orderId) return;
-                    
-                    // Check date filter for completed jobs
-                    if (job.status === 'completed') {
-                        const completionDate = job.completionDate?.toDate();
-                        if (completionDate && completionDate < startDate) {
-                            return;
-                        }
+                jobSnap.forEach(doc => {
+                    const j = doc.data();
+                    const o = orders[j.orderId || '(no order id)'];
+                    if (!o) return;
+                    if (j.status === 'completed') {
+                        o.produced += Number(j.productionOutput) || 0;
+                        o.scrap += Number(j.scrapQuantity) || 0;
+                    } else {
+                        o.running = true;
                     }
-                    
-                    if (!orderData[jobOrderId]) {
-                        orderData[jobOrderId] = {
-                            orderId: jobOrderId,
-                            customer: job.customer,
-                            allocatedQuantity: 0,
-                            producedQuantity: 0,
-                            scrapQuantity: 0,
-                            jobs: [],
-                            allocations: []
-                        };
-                    }
-                    
-                    orderData[jobOrderId].producedQuantity += parseFloat(job.productionOutput || 0);
-                    orderData[jobOrderId].jobs.push(job);
                 });
-                
-                // Process scrap records
-                scrapSnapshot.forEach(doc => {
-                    const scrap = doc.data();
-                    const scrapOrderId = scrap.orderId;
-                    
-                    if (!scrapOrderId) return;
-                    if (orderId && scrapOrderId !== orderId) return;
-                    
-                    // Check date filter
-                    const scrapDate = scrap.date?.toDate();
-                    if (scrapDate && scrapDate < startDate) {
-                        return;
-                    }
-                    
-                    if (!orderData[scrapOrderId]) {
-                        orderData[scrapOrderId] = {
-                            orderId: scrapOrderId,
-                            customer: scrap.customer,
-                            allocatedQuantity: 0,
-                            producedQuantity: 0,
-                            scrapQuantity: 0,
-                            jobs: [],
-                            allocations: []
-                        };
-                    }
-                    
-                    if (scrap.scrapType !== 'RM') orderData[scrapOrderId].scrapQuantity += parseFloat(scrap.scrapQuantity || 0);
+
+                let list = Object.values(orders).map(o => {
+                    o.pending = Math.max(o.ordered - o.produced, 0);
+                    o.status = (o.open === 0 && o.done > 0) ? 'Completed' : ((o.running || o.produced > 0) ? 'In Progress' : 'Not Started');
+                    return o;
                 });
-                
-                // Display results
-                displayOrderAnalysis(orderData);
+                if (orderId) list = list.filter(o => o.orderId === orderId);
+                if (statusFilter === 'inprogress') list = list.filter(o => o.status !== 'Completed');
+                if (statusFilter === 'completed') list = list.filter(o => o.status === 'Completed');
+                list.sort((a, b) => a.orderId.localeCompare(b.orderId));
+                displayOrderAnalysis(list);
             }).catch(error => {
                 console.error('Error loading order analysis:', error);
-                resultsDiv.innerHTML = '<div class="text-center text-danger">Error loading analysis</div>';
+                resultsDiv.innerHTML = '<div class="text-center text-danger">Error loading order analysis</div>';
             });
         }
 
-        // Display order analysis results
-        function displayOrderAnalysis(orderData) {
+        // Display order analysis results (simple table)
+        function displayOrderAnalysis(list) {
             const resultsDiv = document.getElementById('orderAnalysisResults');
-            
-            if (Object.keys(orderData).length === 0) {
-                resultsDiv.innerHTML = '<div class="text-center text-muted">No data found for selected filters</div>';
+            if (!list.length) {
+                resultsDiv.innerHTML = '<div class="text-center text-muted">No orders found</div>';
                 return;
             }
-            
-            let html = '';
-            
-            Object.values(orderData).forEach(order => {
-                const completionRate = order.allocatedQuantity > 0 ? 
-                    (order.producedQuantity / order.allocatedQuantity * 100).toFixed(1) : 0;
-                const scrapRate = order.producedQuantity > 0 ? 
-                    (order.scrapQuantity / order.producedQuantity * 100).toFixed(1) : 0;
-                
-                html += `
-                    <div class="card analysis-card mb-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">Order: ${order.orderId} - ${order.customer}</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="row mb-3">
-                                <div class="col-md-3">
-                                    <div class="card stats-card">
-                                        <div class="stats-number text-primary">${order.allocatedQuantity}</div>
-                                        <div class="stats-label">Allocated</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card stats-card">
-                                        <div class="stats-number text-success">${order.producedQuantity}</div>
-                                        <div class="stats-label">Produced</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card stats-card">
-                                        <div class="stats-number text-danger">${order.scrapQuantity}</div>
-                                        <div class="stats-label">FG Scrap</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card stats-card">
-                                        <div class="stats-number text-info">${completionRate}%</div>
-                                        <div class="stats-label">Completion Rate</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="row mb-3">
-                                <div class="col-md-6">
-                                    <h6>Production Progress</h6>
-                                    <div class="progress mb-2">
-                                        <div class="progress-bar bg-success" style="width: ${Math.min(completionRate, 100)}%">
-                                            ${completionRate}%
-                                        </div>
-                                    </div>
-                                    <small>${order.producedQuantity} of ${order.allocatedQuantity} produced</small>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6>Scrap Rate</h6>
-                                    <div class="progress mb-2">
-                                        <div class="progress-bar bg-danger" style="width: ${Math.min(scrapRate, 100)}%">
-                                            ${scrapRate}%
-                                        </div>
-                                    </div>
-                                    <small>${order.scrapQuantity} scrap from ${order.producedQuantity} produced</small>
-                                </div>
-                            </div>
-                            
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <h6>Materials Allocated</h6>
-                                    <ul class="list-group">
-                                        ${order.allocations.map(allocation => `
-                                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                                ${allocation.fgProductName || allocation.materialName}
-                                                <span class="badge bg-primary rounded-pill">
-                                                    ${allocation.orderQuantity || allocation.quantity} ${normalizeUom(allocation.uom) || 'units'}
-                                                </span>
-                                            </li>
-                                        `).join('')}
-                                    </ul>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6>Production Jobs</h6>
-                                    <ul class="list-group">
-                                        ${order.jobs.map(job => `
-                                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                                ${job.materialName}
-                                                <span class="badge ${job.status === 'completed' ? 'bg-success' : 'bg-warning'} rounded-pill">
-                                                    ${job.status}
-                                                </span>
-                                            </li>
-                                        `).join('')}
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            resultsDiv.innerHTML = html;
+            const done = list.filter(o => o.status === 'Completed').length;
+            const badge = s => s === 'Completed' ? 'bg-success' : (s === 'In Progress' ? 'bg-primary' : 'bg-secondary');
+            const num = n => (Math.round(n * 100) / 100).toLocaleString();
+
+            resultsDiv.innerHTML = `
+                <div class="mb-3">
+                    <span class="badge bg-dark me-2">${list.length} order(s)</span>
+                    <span class="badge bg-success me-2">${done} completed</span>
+                    <span class="badge bg-primary">${list.length - done} open</span>
+                </div>
+                <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr><th>Order</th><th>Customer</th><th>Product</th><th>Machine</th>
+                            <th class="text-end">Ordered</th><th class="text-end">Produced</th>
+                            <th class="text-end">Scrap</th><th class="text-end">Pending</th>
+                            <th style="min-width:120px">Progress</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>${list.map(o => {
+                        const pct = o.ordered > 0 ? Math.min(100, Math.round(o.produced / o.ordered * 100)) : 0;
+                        const scrapPct = o.produced > 0 ? ' (' + (o.scrap / o.produced * 100).toFixed(1) + '%)' : '';
+                        return `<tr>
+                            <td><strong>${escAttr(o.orderId)}</strong></td>
+                            <td>${escAttr([...o.customers].join(', ') || '-')}</td>
+                            <td>${escAttr([...o.products].join(', '))}</td>
+                            <td>${escAttr([...o.machines].join(', ') || '-')}</td>
+                            <td class="text-end">${num(o.ordered)} ${escAttr(o.uom)}</td>
+                            <td class="text-end">${num(o.produced)} ${escAttr(o.uom)}</td>
+                            <td class="text-end text-danger">${num(o.scrap)} ${escAttr(o.uom)}${scrapPct}</td>
+                            <td class="text-end">${num(o.pending)} ${escAttr(o.uom)}</td>
+                            <td><div class="progress" style="height:14px"><div class="progress-bar" style="width:${pct}%">${pct}%</div></div></td>
+                            <td><span class="badge ${badge(o.status)}">${o.status}</span></td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table></div>`;
         }
+
+        // Display order analysis results
 
         // Handle index errors
         function handleIndexError(error) {
@@ -7963,6 +7962,7 @@ const firebaseConfig = {
         }
     
 try { syncMasterData(false).catch(function () {}); } catch (e) {}
+try { watchAllocationsOverview(); } catch (e) { console.error(e); }
 \u003c/script>
 </body>
 </html>
@@ -8794,10 +8794,17 @@ function syncMasterData(force) {
                                 <div class="col-md-6">
                                     <div class="card">
                                         <div class="card-body">
-                                            <h6>Quality Status Distribution</h6>
-                                            <div id="qualityChart" style="height: 300px;">
-                                                <div class="text-center py-5">Chart will be displayed here</div>
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <h6 class="mb-0">Quality Status Distribution</h6>
+                                                <select class="form-select form-select-sm" id="qualityPeriod" style="max-width:150px" onchange="loadQualityChart()">
+                                                    <option value="all">All Time</option>
+                                                    <option value="today">Today</option>
+                                                    <option value="week">Last 7 Days</option>
+                                                    <option value="month">Last Month</option>
+                                                </select>
                                             </div>
+                                            <div id="qualityChartHolder" style="height: 260px;"><canvas id="qualityChart"></canvas></div>
+                                            <div id="qualityStatusTable" class="mt-3"><div class="text-center text-muted py-3">Loading...</div></div>
                                         </div>
                                     </div>
                                 </div>
@@ -10445,51 +10452,76 @@ Source Job: ${item.sourceJob || 'N/A'}
             loadRejectionAnalysis();
         }
 
-        // Load quality chart
-        function loadQualityChart() {
-            db.collection('qc_records').get().then(snapshot => {
-                const statusCount = {
-                    approved: 0,
-                    rejected: 0,
-                    rework: 0
-                };
-                
-                snapshot.forEach(doc => {
-                    const qc = doc.data();
-                    statusCount[qc.status]++;
-                });
-                
-                const ctx = document.getElementById('qualityChart').getContext('2d');
-                
-                if (qualityChart) {
-                    qualityChart.destroy();
-                }
-                
-                qualityChart = new Chart(ctx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['Approved', 'Rejected', 'Rework'],
-                        datasets: [{
-                            data: [statusCount.approved, statusCount.rejected, statusCount.rework],
-                            backgroundColor: [
-                                '#27ae60',
-                                '#e74c3c',
-                                '#f39c12'
-                            ]
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'bottom'
-                            }
-                        }
-                    }
-                });
-            });
+// Quality status distribution (Approved / Rejected / Rework / Other) with count, % and quantity
+function qcStatusBucket(qc) {
+    const s = String(qc.finalStatus || qc.status || '').toLowerCase();
+    if (s === 'approved') return 'Approved';
+    if (s === 'rejected') return 'Rejected';
+    if (s === 'rework' || s === 'pending_rework') return 'Rework';
+    return 'Other / Pending';
+}
+
+function loadQualityChart() {
+    const periodEl = document.getElementById('qualityPeriod');
+    const period = periodEl ? periodEl.value : 'all';
+    let from = null;
+    if (period === 'today') { from = new Date(); from.setHours(0, 0, 0, 0); }
+    else if (period === 'week') { from = new Date(); from.setDate(from.getDate() - 7); }
+    else if (period === 'month') { from = new Date(); from.setMonth(from.getMonth() - 1); }
+
+    db.collection('qc_records').get().then(snapshot => {
+        const order = ['Approved', 'Rejected', 'Rework', 'Other / Pending'];
+        const colors = { 'Approved': '#27ae60', 'Rejected': '#e74c3c', 'Rework': '#f39c12', 'Other / Pending': '#95a5a6' };
+        const stat = {};
+        order.forEach(k => { stat[k] = { count: 0, qty: {} }; });
+
+        snapshot.forEach(doc => {
+            const qc = doc.data();
+            const when = qc.qcDate && qc.qcDate.toDate ? qc.qcDate.toDate() : null;
+            if (from && when && when < from) return;
+            const k = qcStatusBucket(qc);
+            stat[k].count++;
+            const u = normalizeUom(qc.uom) || 'unit';
+            stat[k].qty[u] = (stat[k].qty[u] || 0) + (Number(qc.productionQuantity) || 0);
+        });
+
+        const total = order.reduce((s, k) => s + stat[k].count, 0);
+        const holder = document.getElementById('qualityChartHolder');
+        const tableDiv = document.getElementById('qualityStatusTable');
+        if (qualityChart) { qualityChart.destroy(); qualityChart = null; }
+
+        if (!total) {
+            holder.style.display = 'none';
+            tableDiv.innerHTML = '<div class="text-center text-muted py-4">No QC records for this period</div>';
+            return;
         }
+        holder.style.display = 'block';
+
+        const shown = order.filter(k => stat[k].count > 0);
+        qualityChart = new Chart(document.getElementById('qualityChart').getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: shown.map(k => `${k} (${stat[k].count})`),
+                datasets: [{ data: shown.map(k => stat[k].count), backgroundColor: shown.map(k => colors[k]) }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+
+        const qtyText = q => Object.keys(q).map(u => `${Math.round(q[u] * 100) / 100} ${u}`).join(', ') || '-';
+        tableDiv.innerHTML = `<table class="table table-sm mb-0">
+            <thead><tr><th>Status</th><th class="text-end">Lots</th><th class="text-end">%</th><th>Quantity</th></tr></thead>
+            <tbody>${order.map(k => `<tr>
+                <td><span class="badge" style="background:${colors[k]}">${k}</span></td>
+                <td class="text-end">${stat[k].count}</td>
+                <td class="text-end">${(stat[k].count / total * 100).toFixed(1)}%</td>
+                <td>${qtyText(stat[k].qty)}</td></tr>`).join('')}
+                <tr class="fw-bold"><td>Total</td><td class="text-end">${total}</td><td class="text-end">100%</td><td></td></tr>
+            </tbody></table>`;
+    }).catch(err => {
+        console.error('Quality chart error:', err);
+        document.getElementById('qualityStatusTable').innerHTML = '<div class="text-center text-danger">Error loading quality status</div>';
+    });
+}
 
         // Load daily summary
         function loadDailySummary() {
@@ -10512,7 +10544,7 @@ Source Job: ${item.sourceJob || 'N/A'}
                     
                     snapshot.forEach(doc => {
                         const qc = doc.data();
-                        statusCount[qc.status]++;
+                        statusCount[qc.status] = (statusCount[qc.status] || 0) + 1;
                     });
                     
                     dailySummary.innerHTML = `
