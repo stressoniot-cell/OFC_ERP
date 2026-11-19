@@ -40,9 +40,10 @@
 <script>
 window.ERP_EMBEDDED = true;
 // ============================================================
-// UNIT OF MEASURE - one master list shared by Store / Planner / Production / Quality.
-// The Store inventory UOM is the source of truth; every other dashboard must use
-// these exact values (kg, meter, roll, piece, box, unit).
+// SHARED MASTER DATA  (Store / Planner / Production / Quality)
+//   - Unit of measure : the STORE inventory is the master (kg, meter, roll, piece, box, unit)
+//   - Item name / UOM : defined once in the Store, copied everywhere else automatically
+//   - Machines        : one list used by Planner and Production
 // ============================================================
 var UOM_MASTER = ['kg', 'meter', 'roll', 'piece', 'box', 'unit'];
 function normalizeUom(u) {
@@ -56,6 +57,100 @@ function normalizeUom(u) {
         'unit': 'unit', 'units': 'unit'
     };
     return Object.prototype.hasOwnProperty.call(map, s) ? map[s] : s;
+}
+
+var ERP_MACHINES = [
+    { id: 'COLOURING',     name: 'Colouring' },
+    { id: 'BUFFERING-1',   name: 'Buffering-1' },
+    { id: 'BUFFERING-2',   name: 'Buffering-2' },
+    { id: 'SZ',            name: 'SZ' },
+    { id: 'SHEATHING-75',  name: 'Sheathing-75' },
+    { id: 'SHEATHING-80',  name: 'Sheathing-80' },
+    { id: 'SHEATHING-100', name: 'Sheathing-100' }
+];
+function machineLabel(id) {
+    for (var i = 0; i < ERP_MACHINES.length; i++) { if (ERP_MACHINES[i].id === id) return ERP_MACHINES[i].name; }
+    return id || '';
+}
+
+// UOM of a material straight from the Store inventory (never from an old copy)
+function getMasterUom(materialId, fallback) {
+    return db.collection('inventory').where('materialId', '==', materialId).get().then(function (s) {
+        var best = null;
+        s.forEach(function (d) {
+            var x = d.data();
+            if (x.status === 'rejected' || !x.uom) return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            if (!best || (best.qc && !qc)) best = { u: x.uom, qc: qc };
+        });
+        return best ? normalizeUom(best.u) : (normalizeUom(fallback) || '');
+    });
+}
+
+// Copy the Store's UOM + item name onto allocations, BOMs, jobs, QC and scrap records
+// (runs at most every 5 minutes, or immediately when the Store edits an item)
+function syncMasterData(force) {
+    var last = 0;
+    try { last = Number(localStorage.getItem('masterSyncAt') || 0); } catch (e) {}
+    if (!force && Date.now() - last < 5 * 60 * 1000) return Promise.resolve(0);
+
+    return db.collection('inventory').get().then(function (snap) {
+        var master = {};
+        snap.forEach(function (d) {
+            var x = d.data();
+            if (!x.materialId || x.status === 'rejected') return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            var cur = master[x.materialId];
+            if (!cur || (cur.qc && !qc)) {
+                master[x.materialId] = { uom: normalizeUom(x.uom), name: String(x.materialName || '').trim(), qc: qc };
+            }
+        });
+
+        var specs = [
+            { col: 'allocations',     id: 'fgProductId', uom: true,  name: 'fgProductName', arrays: ['components'] },
+            { col: 'production_jobs', id: 'materialId',  uom: true,  name: 'materialName',  arrays: ['components', 'rmScrap'] },
+            { col: 'qc_records',      id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'qc_inventory',    id: 'materialId',  uom: true,  name: null,            arrays: [] },
+            { col: 'scrap_records',   id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'boms',            id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['components', 'rawMaterials'] },
+            { col: 'material_issues', id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['items'] }
+        ];
+        var total = 0;
+
+        return Promise.all(specs.map(function (s) {
+            return db.collection(s.col).get().then(function (cs) {
+                var batch = db.batch(), n = 0;
+                cs.forEach(function (doc) {
+                    if (n >= 400) return;
+                    var x = doc.data(), up = {};
+                    var m = master[x[s.id]];
+                    if (m) {
+                        if (s.uom && m.uom && x.uom !== m.uom) up.uom = m.uom;
+                        if (s.name && m.name && x[s.name] !== m.name) up[s.name] = m.name;
+                    }
+                    (s.arrays || []).forEach(function (a) {
+                        if (!Array.isArray(x[a])) return;
+                        var changed = false;
+                        var arr = x[a].map(function (c) {
+                            var mc = c && master[c.materialId];
+                            if (!mc) return c;
+                            var nc = Object.assign({}, c);
+                            if (mc.uom && c.uom !== mc.uom) { nc.uom = mc.uom; changed = true; }
+                            if (mc.name && c.materialName !== undefined && c.materialName !== mc.name) { nc.materialName = mc.name; changed = true; }
+                            return nc;
+                        });
+                        if (changed) up[a] = arr;
+                    });
+                    if (Object.keys(up).length) { batch.update(doc.ref, up); n++; }
+                });
+                if (n) { total += n; return batch.commit(); }
+            }).catch(function (e) { console.warn('Master sync skipped for ' + s.col, e); });
+        })).then(function () {
+            try { localStorage.setItem('masterSyncAt', String(Date.now())); } catch (e) {}
+            if (total) console.log('Master data synced on ' + total + ' record(s)');
+            return total;
+        });
+    });
 }
 
 \u003c/script>
@@ -1734,6 +1829,7 @@ function updateInventory() {
     })
     .then(() => {
         alert('Material updated successfully!');
+        syncMasterData(true).catch(function () {});
         
         // Hide the modal
         const editModal = bootstrap.Modal.getInstance(document.getElementById('editInventoryModal'));
@@ -2076,6 +2172,7 @@ function updatePagination() {
                             recordTransaction('ADJUST', editMaterialId, materialName, currentStock - oldStock, `Manual stock correction: ${oldStock} -> ${currentStock}`);
                         }
                         alert('Material updated successfully!');
+        syncMasterData(true).catch(function () {});
                         showModule('inventory');
                     })
                     .catch(error => {
@@ -4009,6 +4106,8 @@ document.getElementById('filterTransactionsBtn').addEventListener('click', loadT
             (window.top || window).location.href = 'index.html';
         });
     }
+
+try { syncMasterData(false).catch(function () {}); } catch (e) {}
 \u003c/script>
 </body>
 </html>
@@ -4020,9 +4119,10 @@ document.getElementById('filterTransactionsBtn').addEventListener('click', loadT
 <script>
 window.ERP_EMBEDDED = true;
 // ============================================================
-// UNIT OF MEASURE - one master list shared by Store / Planner / Production / Quality.
-// The Store inventory UOM is the source of truth; every other dashboard must use
-// these exact values (kg, meter, roll, piece, box, unit).
+// SHARED MASTER DATA  (Store / Planner / Production / Quality)
+//   - Unit of measure : the STORE inventory is the master (kg, meter, roll, piece, box, unit)
+//   - Item name / UOM : defined once in the Store, copied everywhere else automatically
+//   - Machines        : one list used by Planner and Production
 // ============================================================
 var UOM_MASTER = ['kg', 'meter', 'roll', 'piece', 'box', 'unit'];
 function normalizeUom(u) {
@@ -4036,6 +4136,100 @@ function normalizeUom(u) {
         'unit': 'unit', 'units': 'unit'
     };
     return Object.prototype.hasOwnProperty.call(map, s) ? map[s] : s;
+}
+
+var ERP_MACHINES = [
+    { id: 'COLOURING',     name: 'Colouring' },
+    { id: 'BUFFERING-1',   name: 'Buffering-1' },
+    { id: 'BUFFERING-2',   name: 'Buffering-2' },
+    { id: 'SZ',            name: 'SZ' },
+    { id: 'SHEATHING-75',  name: 'Sheathing-75' },
+    { id: 'SHEATHING-80',  name: 'Sheathing-80' },
+    { id: 'SHEATHING-100', name: 'Sheathing-100' }
+];
+function machineLabel(id) {
+    for (var i = 0; i < ERP_MACHINES.length; i++) { if (ERP_MACHINES[i].id === id) return ERP_MACHINES[i].name; }
+    return id || '';
+}
+
+// UOM of a material straight from the Store inventory (never from an old copy)
+function getMasterUom(materialId, fallback) {
+    return db.collection('inventory').where('materialId', '==', materialId).get().then(function (s) {
+        var best = null;
+        s.forEach(function (d) {
+            var x = d.data();
+            if (x.status === 'rejected' || !x.uom) return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            if (!best || (best.qc && !qc)) best = { u: x.uom, qc: qc };
+        });
+        return best ? normalizeUom(best.u) : (normalizeUom(fallback) || '');
+    });
+}
+
+// Copy the Store's UOM + item name onto allocations, BOMs, jobs, QC and scrap records
+// (runs at most every 5 minutes, or immediately when the Store edits an item)
+function syncMasterData(force) {
+    var last = 0;
+    try { last = Number(localStorage.getItem('masterSyncAt') || 0); } catch (e) {}
+    if (!force && Date.now() - last < 5 * 60 * 1000) return Promise.resolve(0);
+
+    return db.collection('inventory').get().then(function (snap) {
+        var master = {};
+        snap.forEach(function (d) {
+            var x = d.data();
+            if (!x.materialId || x.status === 'rejected') return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            var cur = master[x.materialId];
+            if (!cur || (cur.qc && !qc)) {
+                master[x.materialId] = { uom: normalizeUom(x.uom), name: String(x.materialName || '').trim(), qc: qc };
+            }
+        });
+
+        var specs = [
+            { col: 'allocations',     id: 'fgProductId', uom: true,  name: 'fgProductName', arrays: ['components'] },
+            { col: 'production_jobs', id: 'materialId',  uom: true,  name: 'materialName',  arrays: ['components', 'rmScrap'] },
+            { col: 'qc_records',      id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'qc_inventory',    id: 'materialId',  uom: true,  name: null,            arrays: [] },
+            { col: 'scrap_records',   id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'boms',            id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['components', 'rawMaterials'] },
+            { col: 'material_issues', id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['items'] }
+        ];
+        var total = 0;
+
+        return Promise.all(specs.map(function (s) {
+            return db.collection(s.col).get().then(function (cs) {
+                var batch = db.batch(), n = 0;
+                cs.forEach(function (doc) {
+                    if (n >= 400) return;
+                    var x = doc.data(), up = {};
+                    var m = master[x[s.id]];
+                    if (m) {
+                        if (s.uom && m.uom && x.uom !== m.uom) up.uom = m.uom;
+                        if (s.name && m.name && x[s.name] !== m.name) up[s.name] = m.name;
+                    }
+                    (s.arrays || []).forEach(function (a) {
+                        if (!Array.isArray(x[a])) return;
+                        var changed = false;
+                        var arr = x[a].map(function (c) {
+                            var mc = c && master[c.materialId];
+                            if (!mc) return c;
+                            var nc = Object.assign({}, c);
+                            if (mc.uom && c.uom !== mc.uom) { nc.uom = mc.uom; changed = true; }
+                            if (mc.name && c.materialName !== undefined && c.materialName !== mc.name) { nc.materialName = mc.name; changed = true; }
+                            return nc;
+                        });
+                        if (changed) up[a] = arr;
+                    });
+                    if (Object.keys(up).length) { batch.update(doc.ref, up); n++; }
+                });
+                if (n) { total += n; return batch.commit(); }
+            }).catch(function (e) { console.warn('Master sync skipped for ' + s.col, e); });
+        })).then(function () {
+            try { localStorage.setItem('masterSyncAt', String(Date.now())); } catch (e) {}
+            if (total) console.log('Master data synced on ' + total + ' record(s)');
+            return total;
+        });
+    });
 }
 
 \u003c/script>
@@ -4524,22 +4718,12 @@ function normalizeUom(u) {
                                     <div class="col-md-6">
                                         <div class="mb-3">
                                             <label for="allocateCustomer" class="form-label">Customer <span class="text-danger">*</span></label>
-                                            <select class="form-select" id="allocateCustomer" required>
-                                                <option value="">Select Customer</option>
-                                                <option value="CUST-011">CUST-011 - ABC Manufacturing</option>
-                                                <option value="CUST-012">CUST-012 - XYZ Industries</option>
-                                                <option value="CUST-013">CUST-013 - Global Tech</option>
-                                                <option value="CUST-014">CUST-014 - Fiber Solutions</option>
-                                            </select>
+                                            <input type="text" class="form-control" id="allocateCustomer" required autocomplete="off" placeholder="Type customer name">
                                         </div>
                                         <div class="mb-3">
                                             <label for="allocateMachine" class="form-label">Machine <span class="text-danger">*</span></label>
                                             <select class="form-select" id="allocateMachine" required>
                                                 <option value="">Select Machine</option>
-                                                <option value="CLADDING-1">CLADDING-1 - Cladding Machine</option>
-                                                <option value="CUTTING-1">CUTTING-1 - Cutting Machine</option>
-                                                <option value="WELDING-1">WELDING-1 - Welding Machine</option>
-                                                <option value="ASSEMBLY-1">ASSEMBLY-1 - Assembly Line</option>
                                             </select>
                                         </div>
                                         <div class="mb-3">
@@ -5406,7 +5590,7 @@ function debugInventory() {
                             <td>${allocation.allocatedDate?.toDate().toLocaleDateString() || '-'}</td>
                             <td>${allocation.fgProductName} (${allocation.fgProductId})</td>
                             <td>${allocation.customer}</td>
-                            <td>${allocation.machine}</td>
+                            <td>${machineLabel(allocation.machine)}</td>
                             <td>${allocation.orderQuantity} units</td>
                             <td><span class="badge bg-success">${allocation.status}</span></td>
                         `;
@@ -5546,11 +5730,7 @@ function debugInventory() {
                 });
                 
                 // FG unit of measure comes from the Store inventory (single source of truth)
-                const fgUomPromise = db.collection('inventory').where('materialId', '==', bom.fgProductId).get().then(snap => {
-                    let u = '';
-                    snap.forEach(d => { if (!u && d.data().uom) u = d.data().uom; });
-                    return normalizeUom(u) || 'kg';
-                });
+                const fgUomPromise = getMasterUom(bom.fgProductId, '').then(u => u || 'unit');
                 
                 Promise.all([reservedPromise, fgUomPromise]).then(([reserved, fgUom]) => {
                     const checks = components.map(component => {
@@ -5647,7 +5827,7 @@ function debugInventory() {
                             <td>${allocation.orderId}</td>
                             <td>${allocation.fgProductName} (${allocation.fgProductId})</td>
                             <td>${allocation.customer}</td>
-                            <td>${allocation.machine}</td>
+                            <td>${machineLabel(allocation.machine)}</td>
                             <td>${allocation.orderQuantity} units</td>
                             <td>${allocation.allocatedDate?.toDate().toLocaleDateString() || '-'}</td>
                             <td><span class="badge bg-success">${allocation.status}</span></td>
@@ -5719,7 +5899,22 @@ function debugInventory() {
                 (window.top || window).location.href = 'index.html';
             }
         }
-    \u003c/script>
+    
+try { syncMasterData(false).catch(function () {}); } catch (e) {}
+
+(function () {
+    function fillMachines() {
+        var s = document.getElementById('allocateMachine');
+        if (!s) return;
+        ERP_MACHINES.forEach(function (m) {
+            var o = document.createElement('option');
+            o.value = m.id; o.textContent = m.name;
+            s.appendChild(o);
+        });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fillMachines); else fillMachines();
+})();
+\u003c/script>
 </body>
 </html>
 </script>
@@ -5730,9 +5925,10 @@ function debugInventory() {
 <script>
 window.ERP_EMBEDDED = true;
 // ============================================================
-// UNIT OF MEASURE - one master list shared by Store / Planner / Production / Quality.
-// The Store inventory UOM is the source of truth; every other dashboard must use
-// these exact values (kg, meter, roll, piece, box, unit).
+// SHARED MASTER DATA  (Store / Planner / Production / Quality)
+//   - Unit of measure : the STORE inventory is the master (kg, meter, roll, piece, box, unit)
+//   - Item name / UOM : defined once in the Store, copied everywhere else automatically
+//   - Machines        : one list used by Planner and Production
 // ============================================================
 var UOM_MASTER = ['kg', 'meter', 'roll', 'piece', 'box', 'unit'];
 function normalizeUom(u) {
@@ -5746,6 +5942,100 @@ function normalizeUom(u) {
         'unit': 'unit', 'units': 'unit'
     };
     return Object.prototype.hasOwnProperty.call(map, s) ? map[s] : s;
+}
+
+var ERP_MACHINES = [
+    { id: 'COLOURING',     name: 'Colouring' },
+    { id: 'BUFFERING-1',   name: 'Buffering-1' },
+    { id: 'BUFFERING-2',   name: 'Buffering-2' },
+    { id: 'SZ',            name: 'SZ' },
+    { id: 'SHEATHING-75',  name: 'Sheathing-75' },
+    { id: 'SHEATHING-80',  name: 'Sheathing-80' },
+    { id: 'SHEATHING-100', name: 'Sheathing-100' }
+];
+function machineLabel(id) {
+    for (var i = 0; i < ERP_MACHINES.length; i++) { if (ERP_MACHINES[i].id === id) return ERP_MACHINES[i].name; }
+    return id || '';
+}
+
+// UOM of a material straight from the Store inventory (never from an old copy)
+function getMasterUom(materialId, fallback) {
+    return db.collection('inventory').where('materialId', '==', materialId).get().then(function (s) {
+        var best = null;
+        s.forEach(function (d) {
+            var x = d.data();
+            if (x.status === 'rejected' || !x.uom) return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            if (!best || (best.qc && !qc)) best = { u: x.uom, qc: qc };
+        });
+        return best ? normalizeUom(best.u) : (normalizeUom(fallback) || '');
+    });
+}
+
+// Copy the Store's UOM + item name onto allocations, BOMs, jobs, QC and scrap records
+// (runs at most every 5 minutes, or immediately when the Store edits an item)
+function syncMasterData(force) {
+    var last = 0;
+    try { last = Number(localStorage.getItem('masterSyncAt') || 0); } catch (e) {}
+    if (!force && Date.now() - last < 5 * 60 * 1000) return Promise.resolve(0);
+
+    return db.collection('inventory').get().then(function (snap) {
+        var master = {};
+        snap.forEach(function (d) {
+            var x = d.data();
+            if (!x.materialId || x.status === 'rejected') return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            var cur = master[x.materialId];
+            if (!cur || (cur.qc && !qc)) {
+                master[x.materialId] = { uom: normalizeUom(x.uom), name: String(x.materialName || '').trim(), qc: qc };
+            }
+        });
+
+        var specs = [
+            { col: 'allocations',     id: 'fgProductId', uom: true,  name: 'fgProductName', arrays: ['components'] },
+            { col: 'production_jobs', id: 'materialId',  uom: true,  name: 'materialName',  arrays: ['components', 'rmScrap'] },
+            { col: 'qc_records',      id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'qc_inventory',    id: 'materialId',  uom: true,  name: null,            arrays: [] },
+            { col: 'scrap_records',   id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'boms',            id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['components', 'rawMaterials'] },
+            { col: 'material_issues', id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['items'] }
+        ];
+        var total = 0;
+
+        return Promise.all(specs.map(function (s) {
+            return db.collection(s.col).get().then(function (cs) {
+                var batch = db.batch(), n = 0;
+                cs.forEach(function (doc) {
+                    if (n >= 400) return;
+                    var x = doc.data(), up = {};
+                    var m = master[x[s.id]];
+                    if (m) {
+                        if (s.uom && m.uom && x.uom !== m.uom) up.uom = m.uom;
+                        if (s.name && m.name && x[s.name] !== m.name) up[s.name] = m.name;
+                    }
+                    (s.arrays || []).forEach(function (a) {
+                        if (!Array.isArray(x[a])) return;
+                        var changed = false;
+                        var arr = x[a].map(function (c) {
+                            var mc = c && master[c.materialId];
+                            if (!mc) return c;
+                            var nc = Object.assign({}, c);
+                            if (mc.uom && c.uom !== mc.uom) { nc.uom = mc.uom; changed = true; }
+                            if (mc.name && c.materialName !== undefined && c.materialName !== mc.name) { nc.materialName = mc.name; changed = true; }
+                            return nc;
+                        });
+                        if (changed) up[a] = arr;
+                    });
+                    if (Object.keys(up).length) { batch.update(doc.ref, up); n++; }
+                });
+                if (n) { total += n; return batch.commit(); }
+            }).catch(function (e) { console.warn('Master sync skipped for ' + s.col, e); });
+        })).then(function () {
+            try { localStorage.setItem('masterSyncAt', String(Date.now())); } catch (e) {}
+            if (total) console.log('Master data synced on ' + total + ' record(s)');
+            return total;
+        });
+    });
 }
 
 \u003c/script>
@@ -6523,14 +6813,8 @@ const firebaseConfig = {
             const machinesList = document.getElementById('machinesList');
             machinesList.innerHTML = '<div class="col-12 text-center">Loading machines...</div>';
             
-            // Define available machines
-            const machines = [
-                { id: 'CLADDING-1', name: 'CLADDING-1 - Cladding Machine', status: 'active' },
-                { id: 'CUTTING-1', name: 'CUTTING-1 - Cutting Machine', status: 'active' },
-                { id: 'WELDING-1', name: 'WELDING-1 - Welding Machine', status: 'maintenance' },
-                { id: 'ASSEMBLY-1', name: 'ASSEMBLY-1 - Assembly Line', status: 'active' },
-                { id: 'EXTRUSION-1', name: 'EXTRUSION-1 - Fiber Extrusion', status: 'active' }
-            ];
+            // One master machine list (shared with the Planner)
+            const machines = ERP_MACHINES.map(m => ({ id: m.id, name: m.name, status: 'active' }));
             
             machinesList.innerHTML = '';
             machines.forEach(machine => {
@@ -6552,6 +6836,26 @@ const firebaseConfig = {
                 `;
                 machinesList.appendChild(col);
             });
+
+            // Machines used by active allocations but not in the master list (old names) - never hide them
+            db.collection('allocations').where('status', '==', 'active').get().then(snap => {
+                const known = new Set(ERP_MACHINES.map(m => m.id));
+                const extra = new Set();
+                snap.forEach(d => { const m = d.data().machine; if (m && !known.has(m)) extra.add(m); });
+                extra.forEach(id => {
+                    const col = document.createElement('div');
+                    col.className = 'col-md-4 mb-3';
+                    col.innerHTML = `
+                        <div class="card machine-card" onclick="selectMachine('${id}', '${id}')">
+                            <div class="card-body text-center">
+                                <i class="fas fa-cog fa-2x mb-2 text-secondary"></i>
+                                <h5>${id}</h5>
+                                <span class="badge bg-secondary">Old machine name</span>
+                            </div>
+                        </div>`;
+                    machinesList.appendChild(col);
+                });
+            }).catch(e => console.error('Extra machines load failed:', e));
         }
 
         // Select machine and show allocations
@@ -6974,13 +7278,7 @@ const firebaseConfig = {
                 const user = localStorage.getItem('username') || localStorage.getItem('userEmail') || 'Production Operator';
                 
                 // UOM always comes from the Store inventory master
-                const uomPromise = allocation.uom
-                    ? Promise.resolve(normalizeUom(allocation.uom))
-                    : db.collection('inventory').where('materialId', '==', allocation.fgProductId).get().then(s => {
-                        let u = '';
-                        s.forEach(d => { if (!u && d.data().uom) u = d.data().uom; });
-                        return normalizeUom(u) || 'kg';
-                    });
+                const uomPromise = getMasterUom(allocation.fgProductId, allocation.uom).then(u => u || 'unit');
                 
                 return Promise.all([uomPromise, getJobComponents(allocation)]).then(([uom, components]) => {
                     const jobData = {
@@ -6989,6 +7287,7 @@ const firebaseConfig = {
                         machine: allocation.machine,
                         materialId: allocation.fgProductId,
                         materialName: allocation.fgProductName,
+                        fgProductName: allocation.fgProductName || '',
                         customer: allocation.customer,
                         customerId: allocation.customer,
                         orderId: allocation.orderId,
@@ -7033,12 +7332,7 @@ const firebaseConfig = {
             const machineSelect = document.getElementById('productionMachine');
             machineSelect.innerHTML = '<option value="">Select Machine</option>';
             
-            const machines = [
-                { id: 'CLADDING-1', name: 'CLADDING-1 - Cladding Machine' },
-                { id: 'CUTTING-1', name: 'CUTTING-1 - Cutting Machine' },
-                { id: 'ASSEMBLY-1', name: 'ASSEMBLY-1 - Assembly Line' },
-                { id: 'EXTRUSION-1', name: 'EXTRUSION-1 - Fiber Extrusion' }
-            ];
+            const machines = ERP_MACHINES.slice();
             
             machines.forEach(machine => {
                 const option = document.createElement('option');
@@ -7046,6 +7340,19 @@ const firebaseConfig = {
                 option.textContent = machine.name;
                 machineSelect.appendChild(option);
             });
+
+            // include machines of active allocations that are not in the master list
+            db.collection('allocations').where('status', '==', 'active').get().then(snap => {
+                const known = new Set(ERP_MACHINES.map(m => m.id));
+                const extra = new Set();
+                snap.forEach(d => { const m = d.data().machine; if (m && !known.has(m)) extra.add(m); });
+                extra.forEach(id => {
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = id + ' (old machine name)';
+                    machineSelect.appendChild(option);
+                });
+            }).catch(e => console.error('Extra machines load failed:', e));
         }
 
         // Load machine allocations for production form
@@ -7654,7 +7961,9 @@ const firebaseConfig = {
                 (window.top || window).location.href = 'index.html';
             }
         }
-    \u003c/script>
+    
+try { syncMasterData(false).catch(function () {}); } catch (e) {}
+\u003c/script>
 </body>
 </html>
 </script>
@@ -7665,9 +7974,10 @@ const firebaseConfig = {
 <script>
 window.ERP_EMBEDDED = true;
 // ============================================================
-// UNIT OF MEASURE - one master list shared by Store / Planner / Production / Quality.
-// The Store inventory UOM is the source of truth; every other dashboard must use
-// these exact values (kg, meter, roll, piece, box, unit).
+// SHARED MASTER DATA  (Store / Planner / Production / Quality)
+//   - Unit of measure : the STORE inventory is the master (kg, meter, roll, piece, box, unit)
+//   - Item name / UOM : defined once in the Store, copied everywhere else automatically
+//   - Machines        : one list used by Planner and Production
 // ============================================================
 var UOM_MASTER = ['kg', 'meter', 'roll', 'piece', 'box', 'unit'];
 function normalizeUom(u) {
@@ -7681,6 +7991,100 @@ function normalizeUom(u) {
         'unit': 'unit', 'units': 'unit'
     };
     return Object.prototype.hasOwnProperty.call(map, s) ? map[s] : s;
+}
+
+var ERP_MACHINES = [
+    { id: 'COLOURING',     name: 'Colouring' },
+    { id: 'BUFFERING-1',   name: 'Buffering-1' },
+    { id: 'BUFFERING-2',   name: 'Buffering-2' },
+    { id: 'SZ',            name: 'SZ' },
+    { id: 'SHEATHING-75',  name: 'Sheathing-75' },
+    { id: 'SHEATHING-80',  name: 'Sheathing-80' },
+    { id: 'SHEATHING-100', name: 'Sheathing-100' }
+];
+function machineLabel(id) {
+    for (var i = 0; i < ERP_MACHINES.length; i++) { if (ERP_MACHINES[i].id === id) return ERP_MACHINES[i].name; }
+    return id || '';
+}
+
+// UOM of a material straight from the Store inventory (never from an old copy)
+function getMasterUom(materialId, fallback) {
+    return db.collection('inventory').where('materialId', '==', materialId).get().then(function (s) {
+        var best = null;
+        s.forEach(function (d) {
+            var x = d.data();
+            if (x.status === 'rejected' || !x.uom) return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            if (!best || (best.qc && !qc)) best = { u: x.uom, qc: qc };
+        });
+        return best ? normalizeUom(best.u) : (normalizeUom(fallback) || '');
+    });
+}
+
+// Copy the Store's UOM + item name onto allocations, BOMs, jobs, QC and scrap records
+// (runs at most every 5 minutes, or immediately when the Store edits an item)
+function syncMasterData(force) {
+    var last = 0;
+    try { last = Number(localStorage.getItem('masterSyncAt') || 0); } catch (e) {}
+    if (!force && Date.now() - last < 5 * 60 * 1000) return Promise.resolve(0);
+
+    return db.collection('inventory').get().then(function (snap) {
+        var master = {};
+        snap.forEach(function (d) {
+            var x = d.data();
+            if (!x.materialId || x.status === 'rejected') return;
+            var qc = (x.qcRecordId || x.sourceJob) ? 1 : 0;
+            var cur = master[x.materialId];
+            if (!cur || (cur.qc && !qc)) {
+                master[x.materialId] = { uom: normalizeUom(x.uom), name: String(x.materialName || '').trim(), qc: qc };
+            }
+        });
+
+        var specs = [
+            { col: 'allocations',     id: 'fgProductId', uom: true,  name: 'fgProductName', arrays: ['components'] },
+            { col: 'production_jobs', id: 'materialId',  uom: true,  name: 'materialName',  arrays: ['components', 'rmScrap'] },
+            { col: 'qc_records',      id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'qc_inventory',    id: 'materialId',  uom: true,  name: null,            arrays: [] },
+            { col: 'scrap_records',   id: 'materialId',  uom: true,  name: 'materialName',  arrays: [] },
+            { col: 'boms',            id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['components', 'rawMaterials'] },
+            { col: 'material_issues', id: 'fgProductId', uom: false, name: 'fgProductName', arrays: ['items'] }
+        ];
+        var total = 0;
+
+        return Promise.all(specs.map(function (s) {
+            return db.collection(s.col).get().then(function (cs) {
+                var batch = db.batch(), n = 0;
+                cs.forEach(function (doc) {
+                    if (n >= 400) return;
+                    var x = doc.data(), up = {};
+                    var m = master[x[s.id]];
+                    if (m) {
+                        if (s.uom && m.uom && x.uom !== m.uom) up.uom = m.uom;
+                        if (s.name && m.name && x[s.name] !== m.name) up[s.name] = m.name;
+                    }
+                    (s.arrays || []).forEach(function (a) {
+                        if (!Array.isArray(x[a])) return;
+                        var changed = false;
+                        var arr = x[a].map(function (c) {
+                            var mc = c && master[c.materialId];
+                            if (!mc) return c;
+                            var nc = Object.assign({}, c);
+                            if (mc.uom && c.uom !== mc.uom) { nc.uom = mc.uom; changed = true; }
+                            if (mc.name && c.materialName !== undefined && c.materialName !== mc.name) { nc.materialName = mc.name; changed = true; }
+                            return nc;
+                        });
+                        if (changed) up[a] = arr;
+                    });
+                    if (Object.keys(up).length) { batch.update(doc.ref, up); n++; }
+                });
+                if (n) { total += n; return batch.commit(); }
+            }).catch(function (e) { console.warn('Master sync skipped for ' + s.col, e); });
+        })).then(function () {
+            try { localStorage.setItem('masterSyncAt', String(Date.now())); } catch (e) {}
+            if (total) console.log('Master data synced on ' + total + ' record(s)');
+            return total;
+        });
+    });
 }
 
 \u003c/script>
@@ -9034,10 +9438,16 @@ const firebaseConfig = {
                 document.getElementById('detailOrderId').textContent = job.orderId || 'N/A';
                 document.getElementById('detailBomId').textContent = job.bomId || 'N/A';
                 document.getElementById('detailFgProductId').textContent = job.fgProductId || 'N/A';
-                document.getElementById('detailFgProductName').textContent = job.fgProductName;
+                document.getElementById('detailFgProductName').textContent = job.fgProductName || job.materialName || 'N/A';
                 document.getElementById('detailMachine').textContent = job.machine;
                 document.getElementById('detailCustomer').textContent = job.customer;
                 document.getElementById('detailQuantity').textContent = `${job.productionOutput} ${normalizeUom(job.uom)}`;
+                // UOM always from the Store master
+                getMasterUom(job.materialId || job.fgProductId, job.uom).then(u => {
+                    if (!u) return;
+                    currentJob.uom = u;
+                    document.getElementById('detailQuantity').textContent = `${job.productionOutput} ${u}`;
+                });
                 
                 // Show job details
                 jobDetails.style.display = 'block';
@@ -10200,7 +10610,9 @@ Source Job: ${item.sourceJob || 'N/A'}
                 (window.top || window).location.href = 'index.html';
             }
         }
-    \u003c/script>
+    
+try { syncMasterData(false).catch(function () {}); } catch (e) {}
+\u003c/script>
 </body>
 </html>
 </script>
