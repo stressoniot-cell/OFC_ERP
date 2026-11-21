@@ -6333,25 +6333,13 @@ function syncMasterData(force) {
                     </div>
 
                     <div class="row">
-                        <div class="col-md-8">
-                            <div class="card">
-                                <div class="card-header">
-                                    <h5 class="mb-0">Active Machine Jobs</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div id="activeJobsList">
-                                        <div class="text-center">Loading active jobs...</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
+                        <div class="col-12">
                             <div class="card">
                                 <div class="card-header">
                                     <h5 class="mb-0">Quick Actions</h5>
                                 </div>
                                 <div class="card-body">
-                                    <div class="d-grid gap-2">
+                                    <div class="d-flex flex-wrap gap-2">
                                         <button class="btn btn-primary" onclick="showModule('machines')">
                                             <i class="fas fa-cogs me-2"></i>Machine Operations
                                         </button>
@@ -6662,7 +6650,6 @@ const firebaseConfig = {
         // Load dashboard data
         function loadDashboardData() {
             loadDashboardStats();
-            loadActiveJobs();
         }
 
         // Load dashboard statistics
@@ -6727,88 +6714,6 @@ const firebaseConfig = {
         }
 
         // Load active jobs for dashboard
-        function loadActiveJobs() {
-            const activeJobsList = document.getElementById('activeJobsList');
-            activeJobsList.innerHTML = '<div class="text-center">Loading...</div>';
-            
-            db.collection('production_jobs')
-                .where('status', '==', 'in-progress')
-                .get()
-                .then(snapshot => {
-                    activeJobsList.innerHTML = '';
-                    
-                    if (snapshot.empty) {
-                        activeJobsList.innerHTML = '<div class="text-center text-muted">No active jobs</div>';
-                        return;
-                    }
-                    
-                    // Convert to array and sort client-side
-                    const jobs = [];
-                    snapshot.forEach(doc => {
-                        jobs.push({ id: doc.id, ...doc.data() });
-                    });
-                    
-                    // Sort by startDate descending
-                    jobs.sort((a, b) => {
-                        const dateA = a.startDate?.toDate() || new Date(0);
-                        const dateB = b.startDate?.toDate() || new Date(0);
-                        return dateB - dateA;
-                    });
-                    
-                    jobs.forEach(job => {
-                        const jobCard = document.createElement('div');
-                        jobCard.className = 'allocation-item';
-                        jobCard.innerHTML = `
-                            <div class="row">
-                                <div class="col-md-3">
-                                    <strong>${job.machine}</strong>
-                                </div>
-                                <div class="col-md-3">
-                                    ${job.materialName}
-                                </div>
-                                <div class="col-md-2">
-                                    ${job.customer}
-                                </div>
-                                <div class="col-md-2">
-                                    <span class="badge bg-warning">In Progress</span>
-                                </div>
-                                <div class="col-md-2">
-                                    <button class="btn btn-sm btn-primary" onclick="completeJob('${job.id}')">
-                                        Complete
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="row mt-2">
-                                <div class="col-md-3">
-                                    <small><strong>Order:</strong> ${job.orderId || 'N/A'}</small>
-                                </div>
-                                <div class="col-md-3">
-                                    <small><strong>BOM:</strong> ${job.bomId || 'N/A'}</small>
-                                </div>
-                                <div class="col-md-3">
-                                    <small><strong>FG Product:</strong> ${job.fgProductId || 'N/A'}</small>
-                                </div>
-                                <div class="col-md-3">
-                                    <small><strong>Operator:</strong> ${job.operatorName || job.startedBy || 'N/A'}</small>
-                                </div>
-                            </div>
-                            <div class="row mt-1">
-                                <div class="col-md-6">
-                                    <small><strong>Planner:</strong> ${job.plannerName || job.allocatedBy || 'N/A'}</small>
-                                </div>
-                                <div class="col-md-6">
-                                    <small><strong>Started:</strong> ${job.startDate?.toDate().toLocaleString() || 'N/A'}</small>
-                                </div>
-                            </div>
-                        `;
-                        activeJobsList.appendChild(jobCard);
-                    });
-                }).catch(error => {
-                    console.error('Error loading active jobs:', error);
-                    activeJobsList.innerHTML = '<div class="text-center text-danger">Error loading jobs</div>';
-                    handleIndexError(error);
-                });
-        }
 
         // Load machines for operations
         function loadMachines() {
@@ -8399,7 +8304,7 @@ function syncMasterData(force) {
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="#" data-module="inventory">
-                                <i class="fas fa-warehouse me-2"></i> FG Inventory
+                                <i class="fas fa-boxes me-2"></i> QC Inventory
                             </a>
                         </li>
                         <li class="nav-item">
@@ -8489,7 +8394,7 @@ function syncMasterData(force) {
                                             <i class="fas fa-clipboard-check me-2"></i>Perform QC Check
                                         </button>
                                         <button class="btn btn-info" onclick="showModule('inventory')">
-                                            <i class="fas fa-warehouse me-2"></i>FG Inventory
+                                            <i class="fas fa-boxes me-2"></i>QC Inventory
                                         </button>
                                         <button class="btn btn-scrap" onclick="showModule('scrap')">
                                             <i class="fas fa-trash me-2"></i>Scrap Management
@@ -8531,52 +8436,6 @@ function syncMasterData(force) {
                                         </select>
                                     </div>
                                 </div>
-\u003c!-- In your Quality Check Module, replace the QC Inventory section with this: -->
-<div class="card mt-4">
-    <div class="card-header">
-        <h5 class="card-title mb-0">
-            <i class="fas fa-boxes me-2"></i>QC Inventory Management
-        </h5>
-    </div>
-    <div class="card-body">
-        <div class="alert alert-info">
-            <i class="fas fa-info-circle me-2"></i>
-            Materials are held in QC inventory after initial inspection. Approved items will be moved to main inventory for dispatch.
-        </div>
-        
-        \u003c!-- Stock Summary will appear here automatically -->
-        
-        <div class="table-responsive">
-            <table class="table table-striped table-hover">
-                <thead>
-                    <tr>
-                        <th>QC Inventory ID</th>
-                        <th>Material Name</th>
-                        <th>Quantity</th>
-                        <th>Size Category</th>
-                        <th>Dimensions</th>
-                        <th>Weight</th>
-                        <th>QC Status</th>
-                        <th>Inventory Status</th>
-                        <th>Added Date</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="qcInventoryBody">
-                    <tr>
-                        <td colspan="10" class="text-center">No items in QC inventory</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="mt-3">
-            <button class="btn btn-primary" onclick="loadQCInventory()">
-                <i class="fas fa-sync-alt me-2"></i>Refresh QC Inventory
-            </button>
-        </div>
-    </div>
-</div>
-
                                 <div id="jobDetails" style="display: none;">
                                     <div class="row mb-4">
                                         <div class="col-md-6">
@@ -8836,69 +8695,52 @@ function syncMasterData(force) {
                     </div>
                 </div>
 
-                \u003c!-- FG Inventory Module -->
+                \u003c!-- QC Inventory Module -->
                 <div id="inventoryModule" class="module-section">
                     <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Inventory Management</h5>
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="fas fa-boxes me-2"></i>QC Inventory</h5>
+                            <button class="btn btn-sm btn-primary" onclick="loadQCInventory()"><i class="fas fa-sync-alt me-1"></i>Refresh</button>
                         </div>
                         <div class="card-body">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                After testing, every lot waits here. <strong>OK</strong> lots are approved into the <strong>Main Store</strong>.
+                                <strong>Rework</strong> lots stay here until the rework is finished: <em>Rework OK</em> goes to the Main Store, <em>Failed</em> becomes Rejected.
+                                <strong>Rejected</strong> lots stay here as rejected stock.
+                            </div>
+                            <div id="qcStockSummary" class="mb-3"></div>
                             <div class="row mb-3">
-                                <div class="col-md-4">
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" id="inventorySearch" placeholder="Search by material name or ID...">
-                                        <button class="btn btn-outline-secondary" type="button" onclick="searchInventory()">
-                                            <i class="fas fa-search"></i>
-                                        </button>
-                                    </div>
+                                <div class="col-md-5">
+                                    <input type="text" class="form-control" id="qcInvSearch" placeholder="Search by material, order or QC inventory ID..." oninput="renderQCInventory()">
                                 </div>
                                 <div class="col-md-3">
-                                    <select class="form-select" id="categoryFilter" onchange="filterInventory()">
-                                        <option value="">All Categories</option>
-                                        <option value="FG">Finished Goods</option>
-                                        <option value="RM">Raw Materials</option>
-                                        <option value="WIP">Work in Progress</option>
-                                        <option value="SP">Spare Parts</option>
-                                        <option value="SCRAP">Scrap</option>
-                                        <option value="REWORK">Rework</option>
+                                    <select class="form-select" id="qcInvFilter" onchange="renderQCInventory()">
+                                        <option value="">All lots</option>
+                                        <option value="qc_hold">OK - waiting approval</option>
+                                        <option value="rework_hold">Rework pending</option>
+                                        <option value="rejection_hold">Rejected (held)</option>
                                     </select>
-                                </div>
-                                <div class="col-md-3">
-                                    <select class="form-select" id="statusFilter" onchange="filterInventory()">
-                                        <option value="">All Status</option>
-                                        <option value="available">Available</option>
-                                        <option value="low_stock">Low Stock</option>
-                                        <option value="out_of_stock">Out of Stock</option>
-                                        <option value="quarantine">Quarantine</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-2">
-                                    <button class="btn btn-outline-primary w-100" onclick="exportInventory()">
-                                        <i class="fas fa-download me-1"></i> Export
-                                    </button>
                                 </div>
                             </div>
-                            
                             <div class="table-responsive">
-                                <table class="table table-hover">
+                                <table class="table table-striped table-hover align-middle">
                                     <thead>
                                         <tr>
-                                            <th>Material ID</th>
-                                            <th>Material Name</th>
-                                            <th>Category</th>
+                                            <th>QC Inventory ID</th>
+                                            <th>Material</th>
+                                            <th>Order</th>
+                                            <th>Quantity</th>
                                             <th>Size</th>
                                             <th>Dimensions</th>
-                                            <th>Current Stock</th>
-                                            <th>UOM</th>
                                             <th>Weight</th>
                                             <th>Status</th>
-                                            <th>Location</th>
-                                            <th>Last Updated</th>
+                                            <th>Added</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="inventoryBody">
-                                        <tr><td colspan="12" class="text-center">Loading inventory...</td></tr>
+                                    <tbody id="qcInventoryBody">
+                                        <tr><td colspan="10" class="text-center">Loading...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -9138,13 +8980,6 @@ const firebaseConfig = {
                 });
             });
 
-            // Inventory search
-            document.getElementById('inventorySearch').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    searchInventory();
-                }
-            });
-
             // Scrap search
             document.getElementById('scrapSearch').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
@@ -9183,7 +9018,7 @@ const firebaseConfig = {
                     break;
                 case 'inventory':
                     document.getElementById('inventoryModule').classList.add('active');
-                    loadFGInventory();
+                    loadQCInventory();
                     break;
                 case 'scrap':
                     document.getElementById('scrapModule').classList.add('active');
@@ -9614,79 +9449,270 @@ function addToQCInventory(qcData) {
 }
 
 // IMPROVED Function to move material from QC inventory to final inventory
+// ============================================================
+// QC INVENTORY FLOW
+//   Inspection (OK / Reject / Rework)  ->  QC inventory
+//   - OK lot        : Approve ............ -> Main Store (FG)
+//   - Rework lot    : stays in QC inventory until rework is finished
+//                       Rework OK ......... -> Main Store (FG)
+//                       Rework failed ..... -> Rejected (stays in QC inventory)
+//   - Rejected lot  : stays in QC inventory as rejected stock
+// ============================================================
+let qcInvCache = [];
+let qcMoveBusy = false;
+
+function qcLotInfo(status) {
+    if (status === 'qc_hold') return { label: 'OK - waiting approval', badge: 'bg-success' };
+    if (status === 'rework_hold') return { label: 'Rework pending', badge: 'bg-warning text-dark' };
+    if (status === 'rejection_hold') return { label: 'Rejected (held in QC)', badge: 'bg-danger' };
+    return { label: status || '-', badge: 'bg-secondary' };
+}
+
+function qcUserName() {
+    return localStorage.getItem('username') || localStorage.getItem('userEmail') || 'Quality Inspector';
+}
+
+// Kept for compatibility: only approval moves a lot out of QC inventory
 function moveToFinalInventory(qcInventoryId, targetStatus) {
-    console.log(`Starting move process: ${qcInventoryId} to ${targetStatus}`);
-    
-    let qcItem; // Declare variable here to maintain scope
-    
+    if (targetStatus !== 'approved') {
+        alert('Only approved lots move to the Main Store. Rework and rejected lots stay in QC inventory.');
+        return Promise.resolve();
+    }
+    return approveQcLot(qcInventoryId);
+}
+
+// OK lot  or  rework finished OK  ->  Main Store
+function approveQcLot(qcInventoryId) {
+    if (qcMoveBusy) return Promise.resolve();
+    const lot = qcInvCache.find(i => i.id === qcInventoryId);
+    const label = lot ? `${lot.materialName} - ${lot.quantity} ${normalizeUom(lot.uom)}` : qcInventoryId;
+    const fromRework = !!lot && lot.inventoryStatus === 'rework_hold';
+    if (!confirm((fromRework ? 'Rework completed OK.\n' : '') + 'Approve and move to the Main Store?\n\n' + label)) return Promise.resolve();
+
+    qcMoveBusy = true;
+    let qcItem;
     return db.collection('qc_inventory').doc(qcInventoryId).get()
         .then(doc => {
-            if (!doc.exists) {
-                throw new Error('QC inventory item not found');
-            }
-            
+            if (!doc.exists) throw new Error('This lot is no longer in QC inventory (already moved?)');
             qcItem = doc.data();
-            console.log('Moving QC item:', qcItem);
-            
-            // Move to appropriate final inventory based on target status
-            if (targetStatus === 'approved') {
-                console.log('Moving to goods inventory...');
-                return moveToGoodsInventory(qcItem).then(() => logQCReceiveTransaction(qcItem));
-            } else if (targetStatus === 'rejected') {
-                console.log('Moving to rejection inventory...');
-                return moveToRejectionInventory(qcItem);
-            } else if (targetStatus === 'rework') {
-                console.log('Moving to rework inventory...');
-                return moveToReworkInventory(qcItem);
-            } else {
-                throw new Error('Invalid target status: ' + targetStatus);
-            }
+            if (qcItem.inventoryStatus === 'rejection_hold') throw new Error('Rejected lots cannot be approved');
+            return moveToGoodsInventory(qcItem);
         })
+        .then(() => logQCReceiveTransaction(qcItem))
         .then(() => {
-            console.log('Final inventory updated, now updating QC record...');
-            
-            // Update the original QC record
-            const user = localStorage.getItem('username') || localStorage.getItem('userEmail') || 'Quality Inspector';
-            return db.collection('qc_records').doc(qcItem.qcRecordId).update({
-                finalStatus: targetStatus,
+            const upd = {
+                finalStatus: 'approved',
                 finalMoveDate: firebase.firestore.FieldValue.serverTimestamp(),
-                finalMoveBy: user
-            });
+                finalMoveBy: qcUserName()
+            };
+            if (qcItem.inventoryStatus === 'rework_hold') upd.reworkResult = 'ok';
+            return db.collection('qc_records').doc(qcItem.qcRecordId).update(upd);
         })
+        .then(() => db.collection('qc_inventory').doc(qcInventoryId).delete())
         .then(() => {
-            console.log('QC record updated, now removing from QC inventory...');
-            
-            // REMOVE from QC inventory after successful move
-            return db.collection('qc_inventory').doc(qcInventoryId).delete();
-        })
-        .then(() => {
-            console.log('Item removed from QC inventory');
-            
-            // Show success message based on target status
-            let message = `Material successfully `;
-            if (targetStatus === 'approved') {
-                message += `approved and moved to main inventory for dispatch!`;
-            } else if (targetStatus === 'rejected') {
-                message += `moved to rejection inventory!`;
-            } else if (targetStatus === 'rework') {
-                message += `moved to rework inventory!`;
-            }
-            
-            alert(message);
-            loadQCInventory(); // Refresh the QC inventory list
-            
-            // Refresh main inventory if approved
-            if (targetStatus === 'approved') {
-                setTimeout(() => {
-                    loadInventory(); // Refresh main inventory with a slight delay
-                }, 1000);
-            }
+            alert('Approved and moved to the Main Store.');
+            loadQCInventory();
         })
         .catch(error => {
-            console.error('Error in moveToFinalInventory:', error);
+            console.error('Error approving lot:', error);
             alert('Error moving material: ' + error.message);
-        });
+        })
+        .finally(() => { qcMoveBusy = false; });
 }
+
+// Rework finished but still not OK  ->  Rejected (stays in QC inventory)
+function rejectReworkLot(qcInventoryId) {
+    if (qcMoveBusy) return;
+    const reason = prompt('Rework failed. Reason for rejection:');
+    if (reason === null) return;
+    if (!reason.trim()) { alert('Please enter a reason'); return; }
+
+    qcMoveBusy = true;
+    let qcItem;
+    const fullReason = 'Rework failed: ' + reason.trim();
+    db.collection('qc_inventory').doc(qcInventoryId).get()
+        .then(doc => {
+            if (!doc.exists) throw new Error('This lot is no longer in QC inventory');
+            qcItem = doc.data();
+            if (qcItem.inventoryStatus !== 'rework_hold') throw new Error('Only lots in rework can be rejected here');
+            return db.collection('qc_inventory').doc(qcInventoryId).update({
+                qcStatus: 'rejected',
+                inventoryStatus: 'rejection_hold',
+                rejectionReason: fullReason,
+                reworkResult: 'failed',
+                location: 'Rejection Area',
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        })
+        .then(() => db.collection('qc_records').doc(qcItem.qcRecordId).update({
+            finalStatus: 'rejected',
+            finalMoveDate: firebase.firestore.FieldValue.serverTimestamp(),
+            finalMoveBy: qcUserName(),
+            rejectionReason: fullReason,
+            reworkResult: 'failed'
+        }))
+        .then(() => {
+            alert('Lot moved to rejected stock (held in QC inventory).');
+            loadQCInventory();
+        })
+        .catch(error => {
+            console.error('Error rejecting rework lot:', error);
+            alert('Error: ' + error.message);
+        })
+        .finally(() => { qcMoveBusy = false; });
+}
+
+// Lots that an older version moved out to rework_inventory / rejection_inventory come back to QC inventory
+function migrateOldQcStock() {
+    return Promise.all([
+        db.collection('rework_inventory').get(),
+        db.collection('rejection_inventory').get()
+    ]).then(([rw, rj]) => {
+        const batch = db.batch();
+        let n = 0;
+        const base = (x, prefix) => {
+            let name = String(x.materialName || '').replace(prefix, '');
+            if (x.dimensions) name = name.replace(' - ' + x.dimensions, '');
+            return name;
+        };
+        const build = (id, x, status, inv, prefix, extra) => Object.assign({
+            qcInventoryId: 'QC-INV-' + id,
+            qcRecordId: x.qcRecordId || '',
+            materialId: x.materialId || '',
+            materialName: String(x.materialName || '').replace(prefix, ''),
+            baseMaterialName: cleanMaterialName({ materialName: base(x, prefix), sizeCategory: x.sizeCategory }),
+            quantity: x.quantity || 0,
+            uom: normalizeUom(x.uom),
+            sizeCategory: x.sizeCategory || '',
+            dimensions: x.dimensions || '',
+            weight: x.weight || '',
+            category: x.category || 'FG',
+            sourceJob: x.sourceJob || '',
+            orderId: x.orderId || '',
+            qcStatus: status,
+            inventoryStatus: inv,
+            addedDate: x.addedDate || firebase.firestore.FieldValue.serverTimestamp(),
+            addedBy: x.addedBy || '',
+            location: 'QC Hold Area'
+        }, extra);
+
+        rw.forEach(d => {
+            const x = d.data();
+            if (n >= 200 || (x.status && x.status !== 'pending_rework')) return;
+            batch.set(db.collection('qc_inventory').doc('QC-INV-' + (x.reworkId || d.id)),
+                build(x.reworkId || d.id, x, 'rework', 'rework_hold', 'REWORK - ', { remarks: x.reason || '' }));
+            batch.delete(d.ref); n++;
+        });
+        rj.forEach(d => {
+            const x = d.data();
+            if (n >= 200 || (x.status && x.status !== 'rejected')) return;
+            batch.set(db.collection('qc_inventory').doc('QC-INV-' + (x.rejectionId || d.id)),
+                build(x.rejectionId || d.id, x, 'rejected', 'rejection_hold', 'REJECTED - ',
+                    { rejectionReason: x.rejectionReason || '', disposition: x.disposition || '', remarks: x.notes || '' }));
+            batch.delete(d.ref); n++;
+        });
+        if (n) return batch.commit().then(() => { console.log('Moved ' + n + ' old rework/rejection lot(s) back into QC inventory'); return n; });
+        return 0;
+    }).catch(e => { console.warn('Old QC stock migration skipped', e); return 0; });
+}
+
+// Load QC inventory
+function loadQCInventory() {
+    const tbody = document.getElementById('qcInventoryBody');
+    if (!tbody) return Promise.resolve();
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center">Loading...</td></tr>';
+
+    return db.collection('qc_inventory').get().then(snapshot => {
+        qcInvCache = [];
+        snapshot.forEach(doc => {
+            const x = doc.data();
+            if (['qc_hold', 'rework_hold', 'rejection_hold'].indexOf(x.inventoryStatus) === -1) return;
+            qcInvCache.push(Object.assign({ id: doc.id }, x));
+        });
+        const ms = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : 0;
+        qcInvCache.sort((a, b) => ms(b.addedDate) - ms(a.addedDate));
+        renderQCInventory();
+    }).catch(error => {
+        console.error('Error loading QC inventory:', error);
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">Error loading QC inventory</td></tr>';
+    });
+}
+
+function renderQCInventory() {
+    const tbody = document.getElementById('qcInventoryBody');
+    if (!tbody) return;
+    const filterEl = document.getElementById('qcInvFilter');
+    const searchEl = document.getElementById('qcInvSearch');
+    const filter = filterEl ? filterEl.value : '';
+    const term = searchEl ? searchEl.value.trim().toLowerCase() : '';
+
+    updateQCStockSummary(qcInvCache);
+
+    const list = qcInvCache.filter(i =>
+        (!filter || i.inventoryStatus === filter) &&
+        (!term || (String(i.materialName || '') + ' ' + String(i.materialId || '') + ' ' + String(i.orderId || '') + ' ' + String(i.qcInventoryId || '')).toLowerCase().indexOf(term) !== -1));
+
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">No items in QC inventory</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = list.map(item => {
+        const info = qcLotInfo(item.inventoryStatus);
+        let actions = '';
+        if (item.inventoryStatus === 'qc_hold') {
+            actions = `<button class="btn btn-sm btn-success" onclick="approveQcLot('${item.id}')"><i class="fas fa-check me-1"></i>Approve &rarr; Main Store</button>`;
+        } else if (item.inventoryStatus === 'rework_hold') {
+            actions = `<div class="btn-group btn-group-sm">
+                <button class="btn btn-success" onclick="approveQcLot('${item.id}')" title="Rework finished OK"><i class="fas fa-check me-1"></i>Rework OK &rarr; Main Store</button>
+                <button class="btn btn-danger" onclick="rejectReworkLot('${item.id}')" title="Rework failed"><i class="fas fa-times me-1"></i>Failed &rarr; Reject</button>
+            </div>`;
+        } else {
+            actions = `<small class="text-muted">Held as rejected stock${item.rejectionReason ? '<br>' + escapeQc(item.rejectionReason) : ''}</small>`;
+        }
+        return `<tr>
+            <td>${escapeQc(item.qcInventoryId || item.id)}</td>
+            <td>${escapeQc(item.materialName || 'N/A')}</td>
+            <td>${escapeQc(item.orderId || '-')}</td>
+            <td>${item.quantity || 0} ${escapeQc(normalizeUom(item.uom))}</td>
+            <td>${escapeQc(item.sizeCategory || '-')}</td>
+            <td>${escapeQc(item.dimensions || '-')}</td>
+            <td>${escapeQc(item.weight || '-')}</td>
+            <td><span class="badge ${info.badge}">${info.label}</span></td>
+            <td>${item.addedDate ? formatDate(item.addedDate) : 'N/A'}</td>
+            <td>${actions}</td>
+        </tr>`;
+    }).join('');
+}
+
+function escapeQc(v) {
+    return String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Summary boxes: lots and quantity in each stock bucket
+function updateQCStockSummary(items) {
+    const box = document.getElementById('qcStockSummary');
+    if (!box) return;
+    const groups = { qc_hold: { n: 0, q: {} }, rework_hold: { n: 0, q: {} }, rejection_hold: { n: 0, q: {} } };
+    (items || []).forEach(i => {
+        const g = groups[i.inventoryStatus];
+        if (!g) return;
+        g.n++;
+        const u = normalizeUom(i.uom) || 'unit';
+        g.q[u] = (g.q[u] || 0) + (Number(i.quantity) || 0);
+    });
+    const qty = q => Object.keys(q).map(u => `${Math.round(q[u] * 100) / 100} ${u}`).join(', ') || '-';
+    const card = (title, cls, g) => `<div class="col-md-3"><div class="border rounded p-2 text-center h-100">
+        <h4 class="${cls} mb-0">${g.n}</h4><small class="fw-bold">${title}</small><br><small class="text-muted">${qty(g.q)}</small></div></div>`;
+    const total = groups.qc_hold.n + groups.rework_hold.n + groups.rejection_hold.n;
+    box.innerHTML = `<div class="row g-2">
+        <div class="col-md-3"><div class="border rounded p-2 text-center h-100"><h4 class="text-primary mb-0">${total}</h4><small class="fw-bold">Total lots in QC</small></div></div>
+        ${card('OK - waiting approval', 'text-success', groups.qc_hold)}
+        ${card('Rework pending', 'text-warning', groups.rework_hold)}
+        ${card('Rejected (held)', 'text-danger', groups.rejection_hold)}
+    </div>`;
+}
+
 
 // Record the approved FG as a RECEIVE transaction so the Store reports count it.
 // Fixed document id (QCRCV-<qcId>) = same id the Store dashboard uses for back-filling,
@@ -9785,228 +9811,12 @@ function moveToGoodsInventory(qcItem) {
 }
 
 // Move to Rejection Inventory
-function moveToRejectionInventory(qcItem) {
-    const rejectionId = 'REJ-INV-' + Date.now();
-    
-    const rejectionData = {
-        rejectionId: rejectionId,
-        qcRecordId: qcItem.qcRecordId,
-        materialId: qcItem.materialId,
-        materialName: `REJECTED - ${qcItem.materialName}`,
-        quantity: qcItem.quantity,
-        uom: normalizeUom(qcItem.uom),
-        sizeCategory: qcItem.sizeCategory,
-        dimensions: qcItem.dimensions,
-        weight: qcItem.weight,
-        category: qcItem.category,
-        sourceJob: qcItem.sourceJob,
-        orderId: qcItem.orderId,
-        rejectionReason: qcItem.rejectionReason || 'Quality rejection',
-        disposition: qcItem.disposition || 'scrap',
-        addedDate: firebase.firestore.FieldValue.serverTimestamp(),
-        addedBy: qcItem.addedBy,
-        status: 'rejected',
-        location: 'Rejection Area',
-        notes: qcItem.rejectionNotes || qcItem.remarks || ''
-    };
-    
-    console.log('Moving to rejection inventory:', rejectionData);
-    
-    return db.collection('rejection_inventory').doc(rejectionId).set(rejectionData)
-        .then(() => {
-            console.log('Successfully added to rejection_inventory');
-        })
-        .catch(error => {
-            console.error('Error moving to rejection inventory:', error);
-            throw new Error('Failed to add to rejection inventory: ' + error.message);
-        });
-}
 
 // Move to Rework Inventory
-function moveToReworkInventory(qcItem) {
-    const reworkId = 'REWORK-INV-' + Date.now();
-    
-    const reworkData = {
-        reworkId: reworkId,
-        qcRecordId: qcItem.qcRecordId,
-        materialId: qcItem.materialId,
-        materialName: `REWORK - ${qcItem.materialName}`,
-        quantity: qcItem.quantity,
-        uom: normalizeUom(qcItem.uom),
-        sizeCategory: qcItem.sizeCategory,
-        dimensions: qcItem.dimensions,
-        weight: qcItem.weight,
-        category: qcItem.category,
-        sourceJob: qcItem.sourceJob,
-        orderId: qcItem.orderId,
-        reason: qcItem.rejectionReason || qcItem.remarks || 'Quality rework required',
-        addedDate: firebase.firestore.FieldValue.serverTimestamp(),
-        addedBy: qcItem.addedBy,
-        status: 'pending_rework',
-        location: 'Rework Area',
-        priority: 'high'
-    };
-    
-    console.log('Moving to rework inventory:', reworkData);
-    
-    return db.collection('rework_inventory').doc(reworkId).set(reworkData)
-        .then(() => {
-            console.log('Successfully added to rework_inventory');
-        })
-        .catch(error => {
-            console.error('Error moving to rework inventory:', error);
-            throw new Error('Failed to add to rework inventory: ' + error.message);
-        });
-}
 
 // Function to load QC inventory for management - CORRECTED
-function loadQCInventory() {
-    const tbody = document.getElementById('qcInventoryBody');
-    if (!tbody) {
-        console.error('QC inventory table body not found');
-        return;
-    }
-    
-    tbody.innerHTML = '<tr><td colspan="10" class="text-center">Loading...</td></tr>';
-    
-    console.log('Loading QC inventory...');
-    
-    db.collection('qc_inventory')
-        .orderBy('addedDate', 'desc')
-        .get()
-        .then(snapshot => {
-            console.log('QC inventory snapshot:', snapshot.size, 'items found');
-            
-            tbody.innerHTML = '';
-            
-            if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="10" class="text-center">No items in QC inventory</td></tr>';
-                updateQCStockSummary(0, 0, 0, 0);
-                return;
-            }
-            
-            let totalItems = 0;
-            let qcHoldCount = 0;
-            let rejectionHoldCount = 0;
-            let reworkHoldCount = 0;
-            let hasItems = false;
-            
-            snapshot.forEach(doc => {
-                const item = doc.data();
-                
-                // Only show items that are still in hold status
-                if (item.inventoryStatus && ['qc_hold', 'rejection_hold', 'rework_hold'].includes(item.inventoryStatus)) {
-                    hasItems = true;
-                    totalItems++;
-                    
-                    if (item.inventoryStatus === 'qc_hold') qcHoldCount++;
-                    if (item.inventoryStatus === 'rejection_hold') rejectionHoldCount++;
-                    if (item.inventoryStatus === 'rework_hold') reworkHoldCount++;
-                    
-                    const row = document.createElement('tr');
-                    
-                    let actions = '';
-                    if (item.inventoryStatus === 'qc_hold') {
-                        actions = `
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-success" onclick="moveToFinalInventory('${doc.id}', 'approved')">
-                                    <i class="fas fa-check"></i> Approve
-                                </button>
-                                <button class="btn btn-danger" onclick="moveToFinalInventory('${doc.id}', 'rejected')">
-                                    <i class="fas fa-times"></i> Reject
-                                </button>
-                                <button class="btn btn-warning" onclick="moveToFinalInventory('${doc.id}', 'rework')">
-                                    <i class="fas fa-redo"></i> Rework
-                                </button>
-                            </div>
-                        `;
-                    } else if (item.inventoryStatus === 'rejection_hold') {
-                        actions = `
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-success" onclick="moveToFinalInventory('${doc.id}', 'approved')">
-                                    <i class="fas fa-check"></i> Approve
-                                </button>
-                                <button class="btn btn-danger" onclick="moveToFinalInventory('${doc.id}', 'rejected')">
-                                    <i class="fas fa-times"></i> Confirm Reject
-                                </button>
-                            </div>
-                        `;
-                    } else if (item.inventoryStatus === 'rework_hold') {
-                        actions = `
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-success" onclick="moveToFinalInventory('${doc.id}', 'approved')">
-                                    <i class="fas fa-check"></i> Approve
-                                </button>
-                                <button class="btn btn-warning" onclick="moveToFinalInventory('${doc.id}', 'rework')">
-                                    <i class="fas fa-redo"></i> Confirm Rework
-                                </button>
-                            </div>
-                        `;
-                    }
-                    
-                    row.innerHTML = `
-                        <td>${item.qcInventoryId || doc.id}</td>
-                        <td>${item.materialName || 'N/A'}</td>
-                        <td>${item.quantity || 0} ${normalizeUom(item.uom)}</td>
-                        <td>${item.sizeCategory || '-'}</td>
-                        <td>${item.dimensions || '-'}</td>
-                        <td>${item.weight || '-'}</td>
-                        <td><span class="badge ${getStatusBadgeClass(item.qcStatus)}">${item.qcStatus || 'pending'}</span></td>
-                        <td><span class="badge ${getInventoryStatusBadgeClass(item.inventoryStatus)}">${item.inventoryStatus}</span></td>
-                        <td>${item.addedDate ? formatDate(item.addedDate) : 'N/A'}</td>
-                        <td>${actions}</td>
-                    `;
-                    
-                    tbody.appendChild(row);
-                }
-            });
-            
-            // Update stock summary
-            updateQCStockSummary(totalItems, qcHoldCount, rejectionHoldCount, reworkHoldCount);
-            
-            if (!hasItems) {
-                tbody.innerHTML = '<tr><td colspan="10" class="text-center">No items in QC inventory</td></tr>';
-            }
-        })
-        .catch(error => {
-            console.error('Error loading QC inventory:', error);
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">Error loading QC inventory</td></tr>';
-        });
-}
 
 // Function to update QC stock summary
-function updateQCStockSummary(totalItems, qcHoldCount, rejectionHoldCount, reworkHoldCount) {
-    let summaryElement = document.getElementById('qcStockSummary');
-    
-    if (!summaryElement) {
-        const qcInventoryCard = document.querySelector('#qcInventoryBody').closest('.card-body');
-        summaryElement = document.createElement('div');
-        summaryElement.id = 'qcStockSummary';
-        summaryElement.className = 'alert alert-info mb-3';
-        qcInventoryCard.insertBefore(summaryElement, document.querySelector('#qcInventoryBody').closest('.table-responsive'));
-    }
-    
-    summaryElement.innerHTML = `
-        <div class="row text-center">
-            <div class="col-md-3">
-                <h4 class="text-primary">${totalItems}</h4>
-                <small>Total Items in QC</small>
-            </div>
-            <div class="col-md-3">
-                <h4 class="text-info">${qcHoldCount}</h4>
-                <small>QC Hold</small>
-            </div>
-            <div class="col-md-3">
-                <h4 class="text-danger">${rejectionHoldCount}</h4>
-                <small>Rejection Hold</small>
-            </div>
-            <div class="col-md-3">
-                <h4 class="text-warning">${reworkHoldCount}</h4>
-                <small>Rework Hold</small>
-            </div>
-        </div>
-    `;
-}
 
 // Helper function for status badge classes
 function getStatusBadgeClass(status) {
@@ -10138,97 +9948,8 @@ Date: ${qc.qcDate?.toDate().toLocaleString() || '-'}
             });
         }
 
-        // Load FG Inventory
-        function loadFGInventory() {
-            const inventoryBody = document.getElementById('inventoryBody');
-            inventoryBody.innerHTML = '<tr><td colspan="12" class="text-center">Loading inventory...</td></tr>';
-            
-            db.collection('inventory')
-                .orderBy('addedDate', 'desc')
-                .get()
-                .then(snapshot => {
-                    inventoryBody.innerHTML = '';
-                    
-                    if (snapshot.empty) {
-                        inventoryBody.innerHTML = '<tr><td colspan="12" class="text-center text-muted">No inventory items found</td></tr>';
-                        return;
-                    }
-                    
-                    snapshot.forEach(doc => {
-                        const item = doc.data();
-                        const row = document.createElement('tr');
-                        
-                        let statusBadge = '';
-                        if (item.category === 'SCRAP') {
-                            statusBadge = '<span class="badge scrap-inventory-badge">SCRAP</span>';
-                        } else if (item.category === 'REWORK') {
-                            statusBadge = '<span class="badge rework-inventory-badge">REWORK</span>';
-                        } else {
-                            statusBadge = `<span class="badge ${getCategoryBadgeClass(item.category)}">${item.category || 'N/A'}</span>`;
-                        }
-                        
-                        let stockStatus = 'available';
-                        let stockBadgeClass = 'bg-success';
-                        if (item.currentStock <= 0) {
-                            stockStatus = 'out_of_stock';
-                            stockBadgeClass = 'bg-danger';
-                        } else if (item.currentStock <= item.reorderLevel) {
-                            stockStatus = 'low_stock';
-                            stockBadgeClass = 'bg-warning';
-                        }
-                        
-                        row.innerHTML = `
-                            <td>${item.materialId}</td>
-                            <td>${item.materialName}</td>
-                            <td>${statusBadge}</td>
-                            <td>${item.sizeCategory || 'N/A'}</td>
-                            <td>${item.dimensions || 'N/A'}</td>
-                            <td>
-                                <span class="fw-bold ${item.currentStock <= item.reorderLevel ? 'text-danger' : 'text-success'}">
-                                    ${item.currentStock}
-                                </span>
-                            </td>
-                            <td>${normalizeUom(item.uom)}</td>
-                            <td>${item.weight || 'N/A'}</td>
-                            <td>
-                                <span class="badge ${stockBadgeClass}">${stockStatus.replace('_', ' ').toUpperCase()}</span>
-                            </td>
-                            <td>${item.location || 'Main Warehouse'}</td>
-                            <td>${item.addedDate?.toDate().toLocaleDateString() || '-'}</td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-info" onclick="viewInventoryDetails('${doc.id}')">
-                                    <i class="fas fa-info-circle"></i>
-                                </button>
-                            </td>
-                        `;
-                        inventoryBody.appendChild(row);
-                    });
-                });
-        }
 
         // View inventory details
-        function viewInventoryDetails(inventoryId) {
-            db.collection('inventory').doc(inventoryId).get().then(doc => {
-                if (doc.exists) {
-                    const item = doc.data();
-                    const details = `
-Inventory ID: ${item.inventoryId}
-Material: ${item.materialName}
-Category: ${item.category}
-Current Stock: ${item.currentStock} ${normalizeUom(item.uom)}
-Location: ${item.location || 'Main Warehouse'}
-Status: ${item.status}
-Size: ${item.sizeCategory || 'N/A'}
-Dimensions: ${item.dimensions || 'N/A'}
-Weight: ${item.weight || 'N/A'}
-Added By: ${item.addedBy}
-Added Date: ${item.addedDate?.toDate().toLocaleString() || '-'}
-Source Job: ${item.sourceJob || 'N/A'}
-                    `;
-                    alert(details);
-                }
-            });
-        }
 
         // Get badge class based on category
         function getCategoryBadgeClass(category) {
@@ -10244,42 +9965,10 @@ Source Job: ${item.sourceJob || 'N/A'}
         }
 
         // Search inventory
-        function searchInventory() {
-            const searchTerm = document.getElementById('inventorySearch').value.toLowerCase();
-            const rows = document.getElementById('inventoryBody').getElementsByTagName('tr');
-            
-            for (let row of rows) {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            }
-        }
 
         // Filter inventory by category and status
-        function filterInventory() {
-            const category = document.getElementById('categoryFilter').value;
-            const status = document.getElementById('statusFilter').value;
-            const rows = document.getElementById('inventoryBody').getElementsByTagName('tr');
-            
-            for (let row of rows) {
-                if (category === '' && status === '') {
-                    row.style.display = '';
-                } else {
-                    const rowCategory = row.cells[2]?.textContent || '';
-                    const rowStatus = row.cells[8]?.textContent || '';
-                    
-                    const categoryMatch = category === '' || rowCategory.includes(category);
-                    const statusMatch = status === '' || rowStatus.toLowerCase().includes(status.toLowerCase());
-                    
-                    row.style.display = categoryMatch && statusMatch ? '' : 'none';
-                }
-            }
-        }
 
         // Export inventory
-        function exportInventory() {
-            alert('Export functionality would be implemented here');
-            // This would typically generate a CSV or PDF report
-        }
 
         // Load scrap management
         function loadScrapManagement() {
@@ -10644,6 +10333,7 @@ function loadQualityChart() {
         }
     
 try { syncMasterData(false).catch(function () {}); } catch (e) {}
+try { migrateOldQcStock(); } catch (e) { console.error(e); }
 \u003c/script>
 </body>
 </html>
