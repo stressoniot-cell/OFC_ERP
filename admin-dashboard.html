@@ -186,6 +186,7 @@
             z-index: 1000;
         }
     </style>
+<base target="_blank">
 </head>
 <body>
     <!-- Connection Status -->
@@ -252,6 +253,11 @@
                         <li class="nav-item">
                             <a class="nav-link" href="#" data-module="inventory">
                                 <i class="fas fa-boxes me-2"></i> Inventory
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-module="profit">
+                                <i class="fas fa-money-bill-wave me-2"></i> Cost &amp; Profit
                             </a>
                         </li>
                     </ul>
@@ -602,6 +608,61 @@
                     </div>
                 </div>
 
+                <!-- Cost & Profit Module -->
+                <div id="profitModule" class="module-section">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Cost &amp; Profit Reports</h5>
+                            <div>
+                                <button class="btn btn-sm btn-primary" onclick="loadProfitReport()"><i class="fas fa-sync-alt me-1"></i> Refresh</button>
+                                <button class="btn btn-sm export-btn" onclick="exportProfitReport()"><i class="fas fa-file-excel me-1"></i> Export CSV</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-4">
+                                <div class="col-md-2"><div class="card stats-card bg-light"><div class="stats-number text-primary" id="pfOrders">0</div><div class="stats-label">Orders</div></div></div>
+                                <div class="col-md-2"><div class="card stats-card bg-light"><div class="stats-number text-success" id="pfRevenue">0</div><div class="stats-label">Revenue</div></div></div>
+                                <div class="col-md-2"><div class="card stats-card bg-light"><div class="stats-number text-info" id="pfMatCost">0</div><div class="stats-label">Material Cost</div></div></div>
+                                <div class="col-md-2"><div class="card stats-card bg-light"><div class="stats-number text-warning" id="pfScrapCost">0</div><div class="stats-label">Scrap Cost</div></div></div>
+                                <div class="col-md-2"><div class="card stats-card bg-light"><div class="stats-number text-danger" id="pfProfit">0</div><div class="stats-label">Profit</div></div></div>
+                                <div class="col-md-2"><div class="card stats-card bg-light"><div class="stats-number text-dark" id="pfMargin">0%</div><div class="stats-label">Margin</div></div></div>
+                            </div>
+                            <ul class="nav nav-tabs mb-3">
+                                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#profitOrdersTab" type="button">Order Profit</button></li>
+                                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#profitBomTab" type="button">BOM Cost Summary</button></li>
+                                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#profitValTab" type="button">Inventory Valuation</button></li>
+                            </ul>
+                            <div class="tab-content">
+                                <div class="tab-pane fade show active" id="profitOrdersTab">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover">
+                                            <thead><tr><th>Order</th><th>FG Product</th><th>FG ID</th><th>Ordered</th><th>Produced</th><th>Scrap</th><th>Price/Unit</th><th>Revenue</th><th>Material Cost</th><th>Scrap Cost</th><th>Profit</th><th>Margin</th><th>Note</th></tr></thead>
+                                            <tbody id="profitOrderBody"><tr><td colspan="13" class="text-center">Loading...</td></tr></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="profitBomTab">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover">
+                                            <thead><tr><th>BOM ID</th><th>FG Product</th><th>Material</th><th>Qty / Unit</th><th>UOM</th><th>Cost / Unit</th><th>Line Cost</th></tr></thead>
+                                            <tbody id="profitBomBody"><tr><td colspan="7" class="text-center">Loading...</td></tr></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="profitValTab">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover">
+                                            <thead><tr><th>Material ID</th><th>Material Name</th><th>Stock</th><th>UOM</th><th>Unit Cost</th><th>Stock Value</th></tr></thead>
+                                            <tbody id="profitValBody"><tr><td colspan="6" class="text-center">Loading...</td></tr></tbody>
+                                        </table>
+                                    </div>
+                                    <div class="text-end fw-bold mt-2">Total Inventory Value: <span id="profitGrandTotal">0</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Inventory Module -->
                 <div id="inventoryModule" class="module-section">
                     <ul class="nav nav-tabs mb-3" id="inventoryTabs" role="tablist">
@@ -837,6 +898,10 @@ const firebaseConfig = {
                 case 'inventory':
                     document.getElementById('inventoryModule').classList.add('active');
                     loadInventoryData();
+                    break;
+                case 'profit':
+                    document.getElementById('profitModule').classList.add('active');
+                    loadProfitReport();
                     break;
             }
         }
@@ -1209,6 +1274,7 @@ const firebaseConfig = {
                     `;
                     productionBody.appendChild(row);
                 });
+                domPager(productionBody, 'adProd');
             } catch (error) {
                 console.error('Error loading production data:', error);
                 document.getElementById('productionBody').innerHTML = '<tr><td colspan="10" class="text-center text-danger">Error loading production data</td></tr>';
@@ -1309,6 +1375,7 @@ async function loadQualityData() {
             qualityBody.appendChild(row);
         });
         
+        domPager(qualityBody, 'adQc');
     } catch (error) {
         console.error('Error loading quality data:', error);
         document.getElementById('qualityBody').innerHTML = '<tr><td colspan="10" class="text-center text-danger">Error loading quality data: ' + error.message + '</td></tr>';
@@ -1417,6 +1484,7 @@ async function loadMachineAnalytics() {
             `;
             machineAnalysisBody.appendChild(row);
         });
+        domPager(machineAnalysisBody, 'adMach');
     } catch (error) {
         console.error('Error loading machine analytics:', error);
         document.getElementById('machineAnalysisBody').innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error loading machine analytics</td></tr>';
@@ -1514,69 +1582,6 @@ document.addEventListener('DOMContentLoaded', function() {
     window.machineProductionChart = null;
     window.machineScrapChart = null;
 });
-
-        // Load machine charts
-        function loadMachineCharts(machineData) {
-            const machines = Object.keys(machineData);
-            const productionData = machines.map(machine => machineData[machine].production);
-            const scrapData = machines.map(machine => machineData[machine].scrap);
-            
-            // Production Chart
-            const prodCtx = document.getElementById('machineProductionChart').getContext('2d');
-            
-            if (window.machineProductionChart) {
-                window.machineProductionChart.destroy();
-            }
-            
-            window.machineProductionChart = new Chart(prodCtx, {
-                type: 'bar',
-                data: {
-                    labels: machines,
-                    datasets: [{
-                        label: 'Production (kgs)',
-                        data: productionData,
-                        backgroundColor: '#3498db'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                        }
-                    }
-                }
-            });
-
-            // Scrap Chart
-            const scrapCtx = document.getElementById('machineScrapChart').getContext('2d');
-            
-            if (window.machineScrapChart) {
-                window.machineScrapChart.destroy();
-            }
-            
-            window.machineScrapChart = new Chart(scrapCtx, {
-                type: 'bar',
-                data: {
-                    labels: machines,
-                    datasets: [{
-                        label: 'Scrap (kgs)',
-                        data: scrapData,
-                        backgroundColor: '#e74c3c'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                        }
-                    }
-                }
-            });
-        }
 
         // Load order report
         async function loadOrderReport() {
@@ -1697,6 +1702,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     `;
                     orderReportBody.appendChild(row);
                 });
+                domPager(orderReportBody, 'adOrders');
             } catch (error) {
                 console.error('Error loading order report:', error);
                 document.getElementById('orderReportBody').innerHTML = '<tr><td colspan="13" class="text-center text-danger">Error loading order data</td></tr>';
@@ -1819,6 +1825,7 @@ async function loadInventoryData() {
             inventoryBody.appendChild(row);
         });
         
+        domPager(inventoryBody, 'adInv');
         // Load low stock alerts
         loadLowStockAlerts();
         
@@ -1976,6 +1983,7 @@ async function getRecentRejections() {
                     `;
                     consumptionBody.appendChild(row);
                 });
+                domPager(consumptionBody, 'adCons');
             } catch (error) {
                 console.error('Error loading consumption report:', error);
                 document.getElementById('consumptionBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger">Error loading consumption data</td></tr>';
@@ -2567,17 +2575,210 @@ async function syncExistingQCRejections() {
     }
 }
 
-        // Chart export functions
-        function exportProductionChart() {
-            alert('Production chart export functionality would be implemented here');
+        // CSV export helper
+        function csvDownload(filename, headers, rows) {
+            const q = v => '"' + String(v === undefined || v === null ? '' : v).replace(/"/g, '""') + '"';
+            let csv = headers.map(q).join(',') + '\n';
+            rows.forEach(r => { csv += r.map(q).join(',') + '\n'; });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            if (window.saveAs) { saveAs(blob, filename); return; }
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob); a.download = filename; a.click();
         }
 
-        function exportRecentActivities() {
-            alert('Recent activities export functionality would be implemented here');
+        async function exportProductionChart() {
+            try {
+                const snap = await db.collection('production_jobs').orderBy('completionDate', 'desc').limit(500).get();
+                const rows = [];
+                snap.forEach(d => { const j = d.data(); rows.push([j.completionDate?.toDate()?.toLocaleDateString() || '', j.machine, j.jobId, j.operatorName, j.customerId, j.fgProductId, j.allocatedQuantity, j.productionOutput, j.scrapQuantity, j.bomId]); });
+                csvDownload('production_report.csv', ['Date','Machine','Job ID','Operator','Customer ID','FG ID','Allocated (kgs)','Produced (kgs)','Scrap (kgs)','BOM ID'], rows);
+            } catch (e) { alert('Export failed: ' + e.message); }
         }
 
-        function exportMachinePerformance() {
-            alert('Machine performance export functionality would be implemented here');
+        async function exportRecentActivities() {
+            try {
+                const snap = await db.collection('transactions').orderBy('timestamp', 'desc').limit(500).get();
+                const rows = [];
+                snap.forEach(d => { const t = d.data(); rows.push([t.timestamp?.toDate()?.toLocaleString() || '', t.materialId, t.materialName, t.type, t.quantity, t.uom, t.user, t.remarks]); });
+                csvDownload('recent_activities.csv', ['Date','Material ID','Material','Type','Quantity','UOM','User','Remarks'], rows);
+            } catch (e) { alert('Export failed: ' + e.message); }
+        }
+
+        async function exportMachinePerformance() {
+            try {
+                const snap = await db.collection('production_jobs').get();
+                const mData = {};
+                snap.forEach(d => { const j = d.data(); const m = j.machine; if (!mData[m]) mData[m] = { production: 0, scrap: 0, jobs: 0 };
+                    mData[m].production += j.productionOutput || 0; mData[m].scrap += j.scrapQuantity || 0; mData[m].jobs++; });
+                const rows = Object.keys(mData).map(m => { const d = mData[m];
+                    const pct = d.production > 0 ? (d.scrap / d.production * 100).toFixed(1) : 0;
+                    return [m, d.production, d.scrap, pct + '%', d.jobs]; });
+                csvDownload('machine_performance.csv', ['Machine','Production (kgs)','Scrap (kgs)','Scrap %','Jobs'], rows);
+            } catch (e) { alert('Export failed: ' + e.message); }
+        }
+
+
+        // ==================== COST & PROFIT ====================
+        function r3(n) { return Math.round((Number(n) || 0) * 1000) / 1000; }
+        function money2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+        function domPager(container, key, per) {
+            per = per || 10;
+            window.__DP = window.__DP || {};
+            const all = Array.prototype.slice.call(container.children || []);
+            const anchor = container.closest ? (container.closest('.table-responsive') || container.parentElement) : container.parentElement;
+            window.__DP[key] = { rows: all, container, per, anchor };
+            DP_GO(key, 1);
+        }
+        function DP_GO(key, page) {
+            const d = (window.__DP || {})[key]; if (!d) return;
+            const pages = Math.max(1, Math.ceil(d.rows.length / d.per));
+            page = Math.max(1, Math.min(page, pages));
+            d.container.innerHTML = '';
+            d.rows.slice((page - 1) * d.per, page * d.per).forEach(r => d.container.appendChild(r));
+            const old = document.getElementById('pgbar-' + key); if (old) old.remove();
+            if (pages <= 1) return;
+            let h = '<div class="d-flex justify-content-between align-items-center mt-2"><small class="text-muted">Page ' + page + ' of ' + pages + ' &mdash; ' + d.rows.length + ' records (10 per page)</small><div class="btn-group btn-group-sm">';
+            for (let i = 1; i <= pages; i++) h += '<button class="btn ' + (i === page ? 'btn-primary' : 'btn-outline-secondary') + '" onclick="DP_GO(\'' + key + '\',' + i + ')">' + i + '</button>';
+            h += '</div></div>';
+            d.anchor.insertAdjacentHTML('afterend', '<div id="pgbar-' + key + '">' + h + '</div>');
+        }
+
+        let PROFIT_CACHE = { orders: [], bom: [], valuation: [] };
+
+        async function loadProfitReport() {
+            if (!db) { showConnectionStatus('Database not available', 'danger'); return; }
+            const box = document.getElementById('profitOrderBody');
+            box.innerHTML = '<tr><td colspan="13" class="text-center">Loading cost &amp; profit data...</td></tr>';
+            try {
+                const [allocSnap, jobSnap, scrapSnap, bomSnap, invSnap] = await Promise.all([
+                    db.collection('allocations').get(),
+                    db.collection('production_jobs').get(),
+                    db.collection('scrap_records').get(),
+                    db.collection('boms').get(),
+                    db.collection('inventory').get()
+                ]);
+
+                const costMap = {};
+                bomSnap.forEach(d => (d.data().components || []).forEach(c => { if (!(c.materialId in costMap)) costMap[c.materialId] = Number(c.costPerUnit) || 0; }));
+                const priceMap = {};
+                invSnap.forEach(d => { const x = d.data(); if (x.category === 'FG' && !(x.materialId in priceMap)) priceMap[x.materialId] = Number(x.listPrice) || 0; });
+
+                const jobsByOrder = {};
+                jobSnap.forEach(d => { const j = d.data(); const k = j.orderId || '(no order)'; (jobsByOrder[k] = jobsByOrder[k] || []).push(j); });
+                const fgScrapByOrder = {}, rmScrapByOrder = {};
+                scrapSnap.forEach(d => { const s = d.data(); const k = s.orderId || '(no order)';
+                    if (s.scrapType === 'RM') { (rmScrapByOrder[k] = rmScrapByOrder[k] || []).push(s); }
+                    else { fgScrapByOrder[k] = (fgScrapByOrder[k] || 0) + (Number(s.scrapQuantity) || 0); } });
+
+                const orders = {};
+                allocSnap.forEach(d => { const a = d.data(); const k = a.orderId || '(no order)';
+                    const o = orders[k] = orders[k] || { order: k, product: a.fgProductName || '-', fg: a.fgProductId || '-', qty: 0, price: 0, matCost: 0 };
+                    o.qty += Number(a.orderQuantity) || 0;
+                    if (!o.price) o.price = Number(a.pricePerUnit) || priceMap[a.fgProductId] || 0;
+                    o.matCost += Number(a.materialCost) || (a.components || []).reduce((s, c) => s + (Number(c.lineCost) || 0), 0);
+                });
+
+                const rows = [];
+                let tRev = 0, tMat = 0, tScrap = 0, tProfit = 0;
+                Object.keys(orders).sort().forEach(k => {
+                    const o = orders[k];
+                    const jobs = jobsByOrder[k] || [];
+                    const produced = jobs.reduce((s, j) => s + (Number(j.productionOutput) || 0), 0);
+                    const jobScrap = jobs.reduce((s, j) => s + (Number(j.scrapQuantity) || 0), 0) + (fgScrapByOrder[k] || 0);
+                    const unitMatCost = o.qty > 0 ? o.matCost / o.qty : 0;
+                    let scrapCost = jobScrap * unitMatCost;
+                    (rmScrapByOrder[k] || []).forEach(s => { scrapCost += (Number(s.scrapQuantity) || 0) * (costMap[s.materialId] || 0); });
+                    scrapCost = money2(scrapCost);
+                    o.matCost = money2(o.matCost);
+                    const revenue = money2(produced * o.price);
+                    const profit = money2(revenue - o.matCost - scrapCost);
+                    const margin = revenue > 0 ? (profit / revenue * 100).toFixed(1) : '0.0';
+                    tRev = money2(tRev + revenue); tMat = money2(tMat + o.matCost); tScrap = money2(tScrap + scrapCost); tProfit = money2(tProfit + profit);
+                    rows.push({ ...o, produced, scrap: r3(jobScrap), scrapCost, revenue, profit, margin });
+                });
+                PROFIT_CACHE.orders = rows;
+
+                document.getElementById('pfOrders').textContent = rows.length;
+                document.getElementById('pfRevenue').textContent = tRev;
+                document.getElementById('pfMatCost').textContent = tMat;
+                document.getElementById('pfScrapCost').textContent = tScrap;
+                document.getElementById('pfProfit').textContent = tProfit;
+                document.getElementById('pfMargin').textContent = tRev > 0 ? (tProfit / tRev * 100).toFixed(1) + '%' : '0%';
+
+                box.innerHTML = '';
+                if (!rows.length) {
+                    box.innerHTML = '<tr><td colspan="13" class="text-center text-muted">No allocation data found</td></tr>';
+                } else rows.forEach(r => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td class="fw-bold">' + r.order + '</td><td>' + r.product + '</td><td>' + r.fg + '</td><td>' + r.qty + '</td><td>' + r.produced + '</td><td>' + r.scrap + '</td><td>' + r.price + '</td><td class="text-success">' + r.revenue + '</td><td class="text-info">' + r.matCost + '</td><td class="text-warning">' + r.scrapCost + '</td><td class="' + (r.profit >= 0 ? 'text-primary' : 'text-danger') + ' fw-bold">' + r.profit + '</td><td>' + r.margin + '%</td><td>' + (r.price > 0 ? '' : '<span class="badge bg-warning text-dark">set price on allocation</span>') + '</td>';
+                    box.appendChild(tr);
+                });
+                domPager(box, 'pfOrders', 10);
+
+                // BOM cost summary
+                const bomRows = [];
+                bomSnap.forEach(d => { const b = d.data();
+                    (b.components || []).forEach(c => bomRows.push({
+                        bom: b.bomId, fg: b.fgProductName || '-', mat: c.materialName || c.materialId,
+                        qty: r3(c.quantity), uom: c.uom || '', cost: money2(c.costPerUnit || 0),
+                        total: money2((Number(c.costPerUnit) || 0) * (Number(c.quantity) || 0))
+                    }));
+                });
+                bomRows.sort((a, b) => (a.bom + a.mat).localeCompare(b.bom + b.mat));
+                PROFIT_CACHE.bom = bomRows;
+                const bomBox = document.getElementById('profitBomBody');
+                bomBox.innerHTML = '';
+                if (!bomRows.length) bomBox.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No BOMs with cost data yet &mdash; enter costs in the Planner BOM screen</td></tr>';
+                else bomRows.forEach(r => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td class="fw-bold">' + r.bom + '</td><td>' + r.fg + '</td><td>' + r.mat + '</td><td>' + r.qty + '</td><td>' + r.uom + '</td><td>' + r.cost + '</td><td>' + r.total + '</td>';
+                    bomBox.appendChild(tr);
+                });
+                domPager(bomBox, 'pfBom', 10);
+
+                // Inventory valuation (unit cost = latest BOM component cost)
+                let grand = 0;
+                const valRows = [];
+                invSnap.forEach(d => { const x = d.data();
+                    const cost = costMap[x.materialId] || 0;
+                    const val = money2(cost * (Number(x.currentStock) || 0));
+                    grand = money2(grand + val);
+                    valRows.push({ id: x.materialId, name: x.materialName, stock: x.currentStock, uom: x.uom || '', unitCost: cost, value: val });
+                });
+                valRows.sort((a, b) => a.id.localeCompare(b.id));
+                PROFIT_CACHE.valuation = valRows;
+                document.getElementById('profitGrandTotal').textContent = grand;
+                const valBox = document.getElementById('profitValBody');
+                valBox.innerHTML = '';
+                if (!valRows.length) valBox.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No inventory data</td></tr>';
+                else valRows.forEach(r => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td class="fw-bold">' + r.id + '</td><td>' + r.name + '</td><td>' + r.stock + '</td><td>' + r.uom + '</td><td>' + r.unitCost + '</td><td>' + r.value + '</td>';
+                    valBox.appendChild(tr);
+                });
+                domPager(valBox, 'pfVal', 10);
+
+            } catch (error) {
+                console.error('Error loading profit report:', error);
+                box.innerHTML = '<tr><td colspan="13" class="text-center text-danger">Error loading profit data: ' + error.message + '</td></tr>';
+            }
+        }
+
+        function exportProfitReport() {
+            if (typeof csvDownload !== 'function') { alert('CSV helper missing'); return; }
+            const rows = [];
+            rows.push(['=== ORDER PROFIT ===']);
+            rows.push(['Order','FG Product','FG ID','Ordered','Produced','Scrap','Price/Unit','Revenue','Material Cost','Scrap Cost','Profit','Margin %']);
+            PROFIT_CACHE.orders.forEach(r => rows.push([r.order, r.product, r.fg, r.qty, r.produced, r.scrap, r.price, r.revenue, r.matCost, r.scrapCost, r.profit, r.margin]));
+            rows.push([]);
+            rows.push(['=== BOM COST SUMMARY ===']);
+            rows.push(['BOM ID','FG Product','Material','Qty/Unit','UOM','Cost/Unit','Line Cost']);
+            PROFIT_CACHE.bom.forEach(r => rows.push([r.bom, r.fg, r.mat, r.qty, r.uom, r.cost, r.total]));
+            rows.push([]);
+            rows.push(['=== INVENTORY VALUATION ===']);
+            rows.push(['Material ID','Material Name','Stock','UOM','Unit Cost','Stock Value']);
+            PROFIT_CACHE.valuation.forEach(r => rows.push([r.id, r.name, r.stock, r.uom, r.unitCost, r.value]));
+            csvDownload('cost_profit_report.csv', ['Report'], rows);
         }
 
         // Handle logout
